@@ -1,0 +1,19 @@
+node_modules/
+.next/
+out/
+coverage/
+src/generated/
+*.tsbuildinfo
+next-env.d.ts
+
+# Secretos: NUNCA versionar
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+certs/
+supabase/.temp/
+supabase/.branches/

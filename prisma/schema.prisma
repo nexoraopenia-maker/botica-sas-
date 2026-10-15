@@ -1,0 +1,1353 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Nexo ERP — esquema multi-tenant (PostgreSQL / Supabase)
+//
+// Convenciones:
+//   • Columnas snake_case idénticas en Prisma y SQL (las consultas raw y las
+//     políticas RLS usan los mismos nombres).
+//   • Toda tabla de negocio tiene tenant_id, created_at, updated_at, deleted_at.
+//   • Cantidades de inventario SIEMPRE en unidad base (unidad mínima vendible).
+//   • Dinero: Decimal(14,2) totales; Decimal(18,10) valores unitarios (UBL).
+//   • RLS, triggers, índices parciales, CHECKs y funciones viven en
+//     supabase/migrations/*.sql (Prisma no los expresa).
+// ═══════════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pg_trgm, vector, pgcrypto, unaccent]
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  PENDING_DELETION
+  DELETED
+}
+
+enum BusinessLine {
+  AGROVET
+  VETERINARY
+  PHARMACY
+  RETAIL
+}
+
+enum ModuleKey {
+  CORE
+  VETERINARY
+  AGRO
+  PHARMACY
+  MAGISTRAL
+  AI_INVENTORY
+  WHATSAPP
+  DISPATCH_GUIDES
+}
+
+enum PlatformRole {
+  OWNER
+  SUPPORT
+  BILLING
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  SUSPENDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+enum SunatEnvironment {
+  BETA
+  PRODUCTION
+}
+
+enum OseProvider {
+  SUNAT_SEE
+  OSE_GENERIC
+}
+
+enum SecretKind {
+  SOL_CREDENTIALS
+  CERTIFICATE_PFX
+}
+
+/// Catálogo 06 SUNAT
+enum IdentityDocType {
+  NO_DOC // 0
+  DNI // 1
+  CE // 4
+  RUC // 6
+  PASSPORT // 7
+}
+
+/// Catálogo 01 SUNAT
+enum DocumentType {
+  FACTURA // 01
+  BOLETA // 03
+  NOTA_CREDITO // 07
+  NOTA_DEBITO // 08
+}
+
+enum DocumentStatus {
+  PENDIENTE
+  ENVIANDO
+  ACEPTADO
+  ACEPTADO_CON_OBS
+  RECHAZADO
+  ERROR_REINTENTABLE
+  ANULACION_PENDIENTE
+  ANULADO
+}
+
+enum PaymentMethod {
+  EFECTIVO
+  YAPE
+  PLIN
+  TARJETA
+  TRANSFERENCIA
+  CREDITO
+}
+
+enum SaleUnit {
+  UNIT
+  PACKAGE
+}
+
+enum StockMovementType {
+  PURCHASE
+  SALE
+  SALE_RETURN
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  WASTE
+  TRANSFER_IN
+  TRANSFER_OUT
+  CLINICAL_USE
+}
+
+/// Condición de venta (DIGEMID)
+enum SaleCondition {
+  FREE
+  PRESCRIPTION
+  RETAINED_PRESCRIPTION
+}
+
+enum PharmaceuticalKind {
+  GENERIC
+  BRAND
+}
+
+enum PurchaseStatus {
+  DRAFT
+  RECEIVED
+  CANCELED
+}
+
+enum PurchaseSource {
+  MANUAL
+  AI_IMAGE
+  AI_PDF
+  XML_UBL
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+  DEAD
+}
+
+enum Species {
+  CANINE
+  FELINE
+  BOVINE
+  OVINE
+  CAPRINE
+  PORCINE
+  EQUINE
+  AVIAN
+  CAVY
+  RABBIT
+  OTHER
+}
+
+enum PetSex {
+  MALE
+  FEMALE
+  UNKNOWN
+}
+
+enum VisitType {
+  CONSULTATION
+  VACCINATION
+  DEWORMING
+  HOSPITALIZATION
+  SURGERY
+  GROOMING
+  CONTROL
+}
+
+enum VaccineKind {
+  VACCINE
+  RABIES
+  DEWORMING_INTERNAL
+  DEWORMING_EXTERNAL
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  IN_APP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+}
+
+enum AlertKind {
+  BATCH_EXPIRY
+  LOW_STOCK
+  VACCINE_DUE
+  CERTIFICATE_EXPIRY
+  SUNAT_REJECTION
+}
+
+enum PrescriptionKind {
+  SIMPLE
+  RETAINED
+  SPECIAL
+}
+
+enum ControlledMovement {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+enum AiSourceKind {
+  IMAGE
+  PDF
+  XML
+}
+
+enum AiJobStatus {
+  UPLOADED
+  PROCESSING
+  NEEDS_REVIEW
+  APPROVED
+  COMMITTED
+  FAILED
+  DUPLICATE
+}
+
+enum AiItemStatus {
+  MATCHED
+  NEEDS_REVIEW
+  NEW_PRODUCT
+  IGNORED
+}
+
+enum MatchMethod {
+  EXACT_CODE
+  TRIGRAM
+  VECTOR
+  MANUAL
+  NONE
+}
+
+// ══════════════════════════ PLANO DE PLATAFORMA ══════════════════════════
+
+model PlatformAdmin {
+  id             String       @id @db.Uuid // = auth.users.id
+  email          String       @unique
+  full_name      String
+  role           PlatformRole @default(SUPPORT)
+  mfa_required   Boolean      @default(true)
+  last_reauth_at DateTime?    @db.Timestamptz(6)
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime?    @db.Timestamptz(6)
+
+  impersonations ImpersonationSession[]
+
+  @@map("platform_admins")
+}
+
+model Plan {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                String      @unique
+  name                String
+  monthly_price_pen   Decimal     @db.Decimal(10, 2)
+  annual_price_pen    Decimal?    @db.Decimal(10, 2)
+  max_users           Int
+  max_branches        Int
+  max_documents_month Int
+  max_ai_pages_month  Int
+  included_modules    ModuleKey[]
+  trial_days          Int         @default(14)
+  is_public           Boolean     @default(true)
+  created_at          DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime    @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime?   @db.Timestamptz(6)
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id            String             @db.Uuid
+  plan_id              String             @db.Uuid
+  status               SubscriptionStatus @default(TRIALING)
+  payment_status       PaymentStatus      @default(PENDING)
+  trial_ends_at        DateTime?          @db.Timestamptz(6)
+  current_period_start DateTime           @db.Timestamptz(6)
+  current_period_end   DateTime           @db.Timestamptz(6)
+  auto_renew           Boolean            @default(true)
+  last_payment_at      DateTime?          @db.Timestamptz(6)
+  canceled_at          DateTime?          @db.Timestamptz(6)
+  /// Overrides de límites negociados (null = usa el plan)
+  limit_overrides      Json?
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  plan   Plan   @relation(fields: [plan_id], references: [id])
+
+  @@index([tenant_id, status])
+  @@index([current_period_end])
+  @@map("subscriptions")
+}
+
+model UsageCounter {
+  tenant_id  String   @db.Uuid
+  period     String // YYYY-MM (America/Lima)
+  metric     String // documents | ai_pages | ai_input_tokens | ai_output_tokens | whatsapp_messages
+  value      BigInt   @default(0)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@id([tenant_id, period, metric])
+  @@map("usage_counters")
+}
+
+model TenantModule {
+  tenant_id  String    @db.Uuid
+  module     ModuleKey
+  enabled    Boolean   @default(true)
+  config     Json      @default("{}")
+  enabled_at DateTime  @default(now()) @db.Timestamptz(6)
+  enabled_by String?   @db.Uuid
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@id([tenant_id, module])
+  @@map("tenant_modules")
+}
+
+/// Append-only. UPDATE/DELETE bloqueados por trigger; cadena de hash por tenant.
+model AuditLog {
+  id               BigInt   @id @default(autoincrement())
+  occurred_at      DateTime @default(now()) @db.Timestamptz(6)
+  tenant_id        String?  @db.Uuid
+  actor_user_id    String?  @db.Uuid
+  actor_kind       String // tenant_user | platform_admin | system | impersonator
+  impersonation_id String?  @db.Uuid
+  action           String // ej. tenant.suspend, document.void, product.update
+  entity_type      String
+  entity_id        String?
+  before           Json?
+  after            Json?
+  reason           String?
+  ip               String?
+  user_agent       String?
+  request_id       String?
+  prev_hash        String?
+  hash             String   @default("") // lo calcula el trigger app.audit_chain
+
+  @@index([tenant_id, occurred_at(sort: Desc)])
+  @@index([entity_type, entity_id])
+  @@index([actor_user_id, occurred_at(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model ImpersonationSession {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  platform_admin_id String    @db.Uuid
+  tenant_id         String    @db.Uuid
+  target_user_id    String?   @db.Uuid
+  reason            String
+  ticket_ref        String?
+  read_only         Boolean   @default(true)
+  started_at        DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at        DateTime  @db.Timestamptz(6)
+  ended_at          DateTime? @db.Timestamptz(6)
+  ip                String?
+  user_agent        String?
+
+  platform_admin PlatformAdmin @relation(fields: [platform_admin_id], references: [id])
+  tenant         Tenant        @relation(fields: [tenant_id], references: [id])
+
+  @@index([platform_admin_id, started_at(sort: Desc)])
+  @@index([tenant_id, started_at(sort: Desc)])
+  @@map("impersonation_sessions")
+}
+
+model TenantExport {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id    String    @db.Uuid
+  requested_by String    @db.Uuid
+  status       String    @default("PENDING") // PENDING | RUNNING | READY | FAILED
+  storage_path String?
+  sha256       String?
+  expires_at   DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at DateTime? @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id, created_at(sort: Desc)])
+  @@map("tenant_exports")
+}
+
+// ══════════════════════════════ NÚCLEO ══════════════════════════════
+
+model Tenant {
+  id                     String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                   String           @unique
+  ruc                    String           @unique @db.Char(11)
+  legal_name             String
+  trade_name             String?
+  business_lines         BusinessLine[]
+  fiscal_address         String
+  ubigeo                 String           @db.Char(6)
+  department             String
+  province               String
+  district               String
+  urbanization           String?
+  contact_name           String?
+  contact_email          String
+  contact_phone          String?
+  logo_path              String?
+  timezone               String           @default("America/Lima")
+  status                 TenantStatus     @default(TRIAL)
+  sunat_env              SunatEnvironment @default(BETA)
+  ose_provider           OseProvider      @default(SUNAT_SEE)
+  ose_endpoint           String?
+  sol_user               String? // usuario secundario SOL (no es secreto; la clave sí)
+  certificate_expires_at DateTime?        @db.Timestamptz(6)
+  sunat_beta_passed_at   DateTime?        @db.Timestamptz(6)
+  onboarding_step        Int              @default(0)
+  suspended_at           DateTime?        @db.Timestamptz(6)
+  suspension_reason      String?
+  deletion_requested_at  DateTime?        @db.Timestamptz(6)
+  purge_after            DateTime?        @db.Timestamptz(6)
+  created_at             DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at             DateTime?        @db.Timestamptz(6)
+
+  modules        TenantModule[]
+  subscriptions  Subscription[]
+  usage          UsageCounter[]
+  impersonations ImpersonationSession[]
+  exports        TenantExport[]
+  secrets        TenantSecret[]
+  branches       Branch[]
+  members        TenantUser[]
+  roles          Role[]
+
+  @@index([status])
+  @@map("tenants")
+}
+
+/// Secretos cifrados con envelope encryption (AES-256-GCM, DEK envuelta con KEK/KMS).
+/// Sin acceso para roles de tenant: solo service_role / workers.
+model TenantSecret {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String     @db.Uuid
+  kind            SecretKind
+  version         Int        @default(1)
+  ciphertext      Bytes
+  iv              Bytes
+  auth_tag        Bytes
+  wrapped_dek     Bytes
+  kek_id          String
+  /// Metadatos no sensibles del certificado
+  cert_subject    String?
+  cert_serial     String?
+  cert_not_before DateTime?  @db.Timestamptz(6)
+  cert_not_after  DateTime?  @db.Timestamptz(6)
+  fingerprint     String?
+  is_active       Boolean    @default(true)
+  created_by      String?    @db.Uuid
+  created_at      DateTime   @default(now()) @db.Timestamptz(6)
+  rotated_at      DateTime?  @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id, kind, is_active])
+  @@map("tenant_secrets")
+}
+
+/// Establecimiento anexo SUNAT (código 0000 = domicilio fiscal)
+model Branch {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  sunat_code String    @db.Char(4)
+  name       String
+  address    String
+  ubigeo     String    @db.Char(6)
+  phone      String?
+  is_active  Boolean   @default(true)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  tenant    Tenant           @relation(fields: [tenant_id], references: [id])
+  series    DocumentSeries[]
+  batches   ProductBatch[]
+  documents Document[]
+
+  @@unique([tenant_id, sunat_code])
+  @@unique([tenant_id, id])
+  @@map("branches")
+}
+
+/// Perfil de usuario (id = auth.users.id)
+model User {
+  id         String    @id @db.Uuid
+  email      String    @unique
+  full_name  String
+  phone      String?
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  memberships TenantUser[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  key         String // admin | cashier | warehouse | veterinarian | pharmacist | accountant | custom:*
+  name        String
+  permissions String[]
+  is_system   Boolean   @default(false)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at  DateTime? @db.Timestamptz(6)
+
+  tenant  Tenant       @relation(fields: [tenant_id], references: [id])
+  members TenantUser[]
+
+  @@unique([tenant_id, key])
+  @@map("roles")
+}
+
+model TenantUser {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  user_id     String    @db.Uuid
+  role_id     String    @db.Uuid
+  branch_ids  String[]  @db.Uuid // vacío = todas
+  status      String    @default("INVITED") // INVITED | ACTIVE | DISABLED
+  invited_by  String?   @db.Uuid
+  invited_at  DateTime? @db.Timestamptz(6)
+  accepted_at DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at  DateTime? @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  user   User   @relation(fields: [user_id], references: [id])
+  role   Role   @relation(fields: [role_id], references: [id])
+
+  @@unique([tenant_id, user_id])
+  @@index([user_id])
+  @@map("tenant_users")
+}
+
+model Customer {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String          @db.Uuid
+  doc_type        IdentityDocType
+  doc_number      String
+  name            String
+  address         String?
+  ubigeo          String?         @db.Char(6)
+  email           String?
+  phone           String?
+  whatsapp_opt_in Boolean         @default(false)
+  notes           String?
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime        @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime?       @db.Timestamptz(6)
+
+  @@index([tenant_id, name])
+  @@map("customers") // único (tenant, doc_type, doc_number) parcial en SQL
+}
+
+model Supplier {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  ruc        String    @db.Char(11)
+  legal_name String
+  trade_name String?
+  address    String?
+  email      String?
+  phone      String?
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  purchases Purchase[]
+
+  @@map("suppliers") // único (tenant, ruc) parcial en SQL
+}
+
+// ═══════════════════════════ INVENTARIO COMÚN ═══════════════════════════
+
+model ProductCategory {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  name       String
+  parent_id  String?   @db.Uuid
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  products Product[]
+
+  @@unique([tenant_id, name])
+  @@map("product_categories")
+}
+
+model Product {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id         String   @db.Uuid
+  category_id       String?  @db.Uuid
+  sku               String
+  barcode           String?
+  name              String
+  description       String?
+  /// Catálogo 03 (UN/ECE rec 20): NIU, KGM, LTR, BX, ZZ...
+  unit_code         String   @default("NIU")
+  /// Catálogo 07 afectación IGV (10 gravado, 20 exonerado, 30 inafecto, ...)
+  igv_affectation   String   @default("10") @db.Char(2)
+  /// Precio de venta por unidad base, IGV incluido
+  sale_price        Decimal  @db.Decimal(14, 4)
+  /// Precio por empaque (caja/blíster), IGV incluido; null = no se vende por empaque
+  package_price     Decimal? @db.Decimal(14, 4)
+  units_per_package Int      @default(1)
+  package_unit_code String? // ej. BX
+  allow_fractional  Boolean  @default(false) // venta a granel (kg, L)
+  min_stock         Decimal  @default(0) @db.Decimal(14, 3)
+  tracks_batches    Boolean  @default(true)
+  is_service        Boolean  @default(false)
+  icbper            Boolean  @default(false)
+  is_active         Boolean  @default(true)
+
+  // ── Agro / Veterinaria ──
+  senasa_registration  String?
+  withdrawal_days_meat Int?
+  withdrawal_days_milk Int?
+  target_species       Species[]
+
+  // ── Farmacia (DIGEMID) ──
+  digemid_registration String?
+  dci                  String? // Denominación Común Internacional
+  concentration        String?
+  pharmaceutical_form  String?
+  laboratory           String?
+  pharmaceutical_kind  PharmaceuticalKind?
+  sale_condition       SaleCondition?
+  is_controlled        Boolean             @default(false)
+  controlled_list      String? // ej. Lista IIA, IIIA (DS 023-2001-SA)
+  digemid_product_code String? // código Observatorio de Precios
+
+  /// Embedding para emparejamiento IA (pgvector)
+  embedding Unsupported("vector(1024)")?
+
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  category       ProductCategory?         @relation(fields: [category_id], references: [id])
+  batches        ProductBatch[]
+  stockMovements StockMovement[]
+  controlledLogs ControlledSubstanceLog[]
+
+  @@unique([tenant_id, id])
+  @@index([tenant_id, dci])
+  @@map("products") // únicos parciales (sku, barcode) e índices trigram en SQL
+}
+
+model ProductBatch {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id        String    @db.Uuid
+  branch_id        String    @db.Uuid
+  product_id       String    @db.Uuid
+  lot_code         String
+  expiry_date      DateTime? @db.Date
+  unit_cost        Decimal   @db.Decimal(18, 6) // costo por unidad base, sin IGV
+  stock            Decimal   @db.Decimal(14, 3) // unidad base; CHECK >= 0
+  received_at      DateTime  @default(now()) @db.Timestamptz(6)
+  purchase_item_id String?   @db.Uuid
+  is_quarantined   Boolean   @default(false)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime? @db.Timestamptz(6)
+
+  // FK compuestas por tenant: un lote no puede apuntar a producto/sucursal de otro tenant
+  product      Product           @relation(fields: [tenant_id, product_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "product_batches_product_tenant_fk")
+  branch       Branch            @relation(fields: [tenant_id, branch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "product_batches_branch_tenant_fk")
+  movements    StockMovement[]
+  lots         DocumentItemLot[]
+  vaccinations PetVaccination[]
+
+  @@unique([tenant_id, branch_id, product_id, lot_code])
+  @@index([tenant_id, branch_id, product_id, expiry_date]) // FEFO
+  @@index([tenant_id, expiry_date])
+  @@map("product_batches")
+}
+
+/// Kardex append-only (unidad base). quantity con signo.
+model StockMovement {
+  id            BigInt            @id @default(autoincrement())
+  tenant_id     String            @db.Uuid
+  branch_id     String            @db.Uuid
+  product_id    String            @db.Uuid
+  batch_id      String?           @db.Uuid
+  type          StockMovementType
+  quantity      Decimal           @db.Decimal(14, 3)
+  balance_after Decimal           @db.Decimal(14, 3)
+  unit_cost     Decimal?          @db.Decimal(18, 6)
+  ref_type      String? // document | purchase | adjustment | medical_record
+  ref_id        String?           @db.Uuid
+  note          String?
+  created_by    String?           @db.Uuid
+  created_at    DateTime          @default(now()) @db.Timestamptz(6)
+
+  product Product       @relation(fields: [tenant_id, product_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "stock_movements_product_tenant_fk")
+  batch   ProductBatch? @relation(fields: [batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "stock_movements_batch_fk")
+
+  @@index([tenant_id, product_id, created_at])
+  @@index([tenant_id, branch_id, created_at])
+  @@index([ref_type, ref_id])
+  @@map("stock_movements")
+}
+
+model Purchase {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String         @db.Uuid
+  branch_id       String         @db.Uuid
+  supplier_id     String         @db.Uuid
+  doc_type        String         @db.Char(2) // 01 factura, 03 boleta, 09 guía…
+  series          String
+  number          String
+  issue_date      DateTime       @db.Date
+  currency        String         @default("PEN") @db.Char(3)
+  exchange_rate   Decimal?       @db.Decimal(10, 4)
+  subtotal        Decimal        @db.Decimal(14, 2)
+  igv             Decimal        @db.Decimal(14, 2)
+  total           Decimal        @db.Decimal(14, 2)
+  status          PurchaseStatus @default(DRAFT)
+  source          PurchaseSource @default(MANUAL)
+  ai_job_id       String?        @db.Uuid
+  attachment_path String?
+  received_at     DateTime?      @db.Timestamptz(6)
+  created_by      String?        @db.Uuid
+  created_at      DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime?      @db.Timestamptz(6)
+
+  supplier Supplier       @relation(fields: [supplier_id], references: [id])
+  items    PurchaseItem[]
+
+  @@unique([tenant_id, supplier_id, doc_type, series, number]) // anti-duplicado
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  purchase_id     String    @db.Uuid
+  product_id      String    @db.Uuid
+  description     String
+  quantity        Decimal   @db.Decimal(14, 3) // en unidad de compra
+  purchase_unit   SaleUnit  @default(UNIT)
+  base_quantity   Decimal   @db.Decimal(14, 3) // convertido a unidad base
+  unit_cost       Decimal   @db.Decimal(18, 6) // por unidad de compra, sin IGV
+  igv_affectation String    @default("10") @db.Char(2)
+  line_total      Decimal   @db.Decimal(14, 2)
+  lot_code        String?
+  expiry_date     DateTime? @db.Date
+  batch_id        String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+
+  purchase Purchase @relation(fields: [purchase_id], references: [id])
+
+  @@index([purchase_id])
+  @@map("purchase_items")
+}
+
+// ═════════════════════ COMPROBANTES ELECTRÓNICOS (SUNAT) ═════════════════════
+
+model DocumentSeries {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String       @db.Uuid
+  branch_id   String       @db.Uuid
+  doc_type    DocumentType
+  /// F001, B001, FC01 (NC de factura), BC01 (NC de boleta)…
+  series      String       @db.Char(4)
+  last_number Int          @default(0)
+  is_active   Boolean      @default(true)
+  created_at  DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+
+  branch Branch @relation(fields: [branch_id], references: [id])
+
+  @@unique([tenant_id, doc_type, series])
+  @@map("document_series")
+}
+
+model Document {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id      String       @db.Uuid
+  branch_id      String       @db.Uuid
+  doc_type       DocumentType
+  series         String       @db.Char(4)
+  number         Int
+  issue_date     DateTime     @db.Date
+  issue_time     String // HH:mm:ss (hora Lima)
+  due_date       DateTime?    @db.Date
+  currency       String       @default("PEN") @db.Char(3)
+  /// Catálogo 51 tipo de operación (0101 venta interna)
+  operation_type String       @default("0101") @db.Char(4)
+  payment_terms  String       @default("Contado") // Contado | Credito
+
+  customer_id         String?         @db.Uuid
+  customer_doc_type   IdentityDocType
+  customer_doc_number String
+  customer_name       String
+  customer_address    String?
+
+  op_gravadas    Decimal @default(0) @db.Decimal(14, 2)
+  op_exoneradas  Decimal @default(0) @db.Decimal(14, 2)
+  op_inafectas   Decimal @default(0) @db.Decimal(14, 2)
+  op_gratuitas   Decimal @default(0) @db.Decimal(14, 2)
+  total_discount Decimal @default(0) @db.Decimal(14, 2)
+  igv            Decimal @default(0) @db.Decimal(14, 2)
+  icbper         Decimal @default(0) @db.Decimal(14, 2)
+  total          Decimal @db.Decimal(14, 2)
+
+  // NC/ND
+  ref_document_id  String? @db.Uuid
+  note_reason_code String? @db.Char(2) // catálogo 09 / 10
+  note_reason_text String?
+
+  status            DocumentStatus @default(PENDIENTE)
+  sunat_code        String?
+  sunat_description String?
+  sunat_notes       String[]
+  hash              String? // DigestValue
+  xml_path          String?
+  cdr_path          String?
+  sent_at           DateTime?      @db.Timestamptz(6)
+  accepted_at       DateTime?      @db.Timestamptz(6)
+  void_reason       String?
+  voided_at         DateTime?      @db.Timestamptz(6)
+  /// Idempotencia de POS (UUID generado en el cliente)
+  idempotency_key   String?        @db.Uuid
+  created_by        String?        @db.Uuid
+  created_at        DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?      @db.Timestamptz(6)
+
+  branch      Branch            @relation(fields: [tenant_id, branch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "documents_branch_tenant_fk")
+  refDocument Document?         @relation("DocumentReference", fields: [ref_document_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "documents_ref_fk")
+  notes       Document[]        @relation("DocumentReference")
+  items       DocumentItem[]
+  payments    DocumentPayment[]
+  submissions SunatSubmission[]
+
+  @@unique([tenant_id, doc_type, series, number])
+  @@unique([tenant_id, idempotency_key])
+  @@index([tenant_id, status, created_at])
+  @@index([tenant_id, issue_date])
+  @@map("documents")
+}
+
+model DocumentItem {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String   @db.Uuid
+  document_id     String   @db.Uuid
+  line_no         Int
+  product_id      String?  @db.Uuid
+  description     String
+  unit_code       String
+  sale_unit       SaleUnit @default(UNIT)
+  quantity        Decimal  @db.Decimal(14, 3) // en unidad de venta
+  base_quantity   Decimal  @db.Decimal(14, 3) // en unidad base (kardex)
+  unit_value      Decimal  @db.Decimal(18, 10) // sin IGV
+  unit_price      Decimal  @db.Decimal(18, 10) // con IGV (precio referencial)
+  discount        Decimal  @default(0) @db.Decimal(14, 2)
+  igv_affectation String   @db.Char(2)
+  igv_base        Decimal  @db.Decimal(14, 2)
+  igv_amount      Decimal  @db.Decimal(14, 2)
+  line_extension  Decimal  @db.Decimal(14, 2) // valor venta (sin IGV)
+  line_total      Decimal  @db.Decimal(14, 2) // con IGV (+ ICBPER)
+  icbper_units    Int      @default(0)
+  icbper_amount   Decimal  @default(0) @db.Decimal(14, 2)
+  prescription_id String?  @db.Uuid
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  document Document          @relation(fields: [document_id], references: [id])
+  lots     DocumentItemLot[]
+
+  @@unique([document_id, line_no])
+  @@map("document_items")
+}
+
+/// Asignación FEFO: qué lote(s) cubrió cada línea
+model DocumentItemLot {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id        String  @db.Uuid
+  document_item_id String  @db.Uuid
+  batch_id         String  @db.Uuid
+  quantity         Decimal @db.Decimal(14, 3)
+  unit_cost        Decimal @db.Decimal(18, 6)
+
+  item  DocumentItem @relation(fields: [document_item_id], references: [id])
+  batch ProductBatch @relation(fields: [batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "document_item_lots_batch_fk")
+
+  @@index([batch_id])
+  @@map("document_item_lots")
+}
+
+model DocumentPayment {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String        @db.Uuid
+  document_id String        @db.Uuid
+  method      PaymentMethod
+  amount      Decimal       @db.Decimal(14, 2)
+  reference   String?
+  created_at  DateTime      @default(now()) @db.Timestamptz(6)
+
+  document Document @relation(fields: [document_id], references: [id])
+
+  @@map("document_payments")
+}
+
+/// Trazabilidad: un registro por intento de envío a SUNAT/OSE
+model SunatSubmission {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id     String   @db.Uuid
+  document_id   String   @db.Uuid
+  attempt       Int
+  operation     String // sendBill | sendSummary | getStatus | getStatusCdr
+  endpoint      String
+  ticket        String?
+  http_status   Int?
+  response_code String?
+  response_text String?
+  fault_code    String?
+  duration_ms   Int?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  document Document @relation(fields: [document_id], references: [id])
+
+  @@index([document_id, attempt])
+  @@map("sunat_submissions")
+}
+
+// ═══════════════════════════ OUTBOX / COLAS ═══════════════════════════
+
+model OutboxEvent {
+  id              BigInt       @id @default(autoincrement())
+  tenant_id       String?      @db.Uuid
+  aggregate_type  String
+  aggregate_id    String
+  event_type      String // document.issued | document.void_requested | ai.ingest | notification.send …
+  payload         Json
+  dedupe_key      String       @unique
+  status          OutboxStatus @default(PENDING)
+  attempts        Int          @default(0)
+  max_attempts    Int          @default(10)
+  next_attempt_at DateTime     @default(now()) @db.Timestamptz(6)
+  locked_by       String?
+  locked_until    DateTime?    @db.Timestamptz(6)
+  last_error      String?
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  processed_at    DateTime?    @db.Timestamptz(6)
+
+  @@index([status, next_attempt_at])
+  @@map("outbox_events")
+}
+
+// ═════════════════════════════ VETERINARIA ═════════════════════════════
+
+model Owner {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String           @db.Uuid
+  customer_id     String?          @db.Uuid // para facturar
+  full_name       String
+  doc_type        IdentityDocType?
+  doc_number      String?
+  phone           String?
+  whatsapp        String? // E.164
+  email           String?
+  address         String?
+  notify_whatsapp Boolean          @default(true)
+  notify_email    Boolean          @default(true)
+  created_at      DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime?        @db.Timestamptz(6)
+
+  pets Pet[]
+
+  @@index([tenant_id, full_name])
+  @@map("owners")
+}
+
+model Pet {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  owner_id    String    @db.Uuid
+  name        String
+  species     Species
+  breed       String?
+  sex         PetSex    @default(UNKNOWN)
+  birth_date  DateTime? @db.Date
+  color       String?
+  microchip   String?
+  sterilized  Boolean   @default(false)
+  weight_kg   Decimal?  @db.Decimal(7, 2)
+  photo_path  String?
+  allergies   String?
+  deceased_at DateTime? @db.Date
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at  DateTime? @db.Timestamptz(6)
+
+  owner        Owner            @relation(fields: [owner_id], references: [id])
+  records      MedicalRecord[]
+  vaccinations PetVaccination[]
+
+  @@index([tenant_id, owner_id])
+  @@map("pets")
+}
+
+model MedicalRecord {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  branch_id       String    @db.Uuid
+  pet_id          String    @db.Uuid
+  vet_user_id     String    @db.Uuid
+  visit_type      VisitType
+  visit_at        DateTime  @default(now()) @db.Timestamptz(6)
+  reason          String?
+  anamnesis       String?
+  weight_kg       Decimal?  @db.Decimal(7, 2)
+  temperature_c   Decimal?  @db.Decimal(4, 1)
+  heart_rate      Int?
+  resp_rate       Int?
+  physical_exam   String?
+  diagnosis       String?
+  treatment       String?
+  prescription    String?
+  admitted_at     DateTime? @db.Timestamptz(6)
+  discharged_at   DateTime? @db.Timestamptz(6)
+  next_control_at DateTime? @db.Date
+  document_id     String?   @db.Uuid // ticket de venta asociado
+  attachments     String[]
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+
+  pet Pet @relation(fields: [pet_id], references: [id])
+
+  @@index([tenant_id, pet_id, visit_at(sort: Desc)])
+  @@map("medical_records")
+}
+
+/// Catálogo de vacunas / antiparasitarios con su esquema.
+/// tenant_id null = catálogo global de plataforma.
+model VaccineCatalog {
+  id                       String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String?     @db.Uuid
+  species                  Species
+  name                     String
+  kind                     VaccineKind
+  product_id               String?     @db.Uuid
+  first_dose_min_age_days  Int // ej. 42 (6 semanas)
+  primary_doses            Int // dosis de la serie primaria
+  primary_interval_days    Int // entre dosis primarias (ej. 21)
+  booster_interval_days    Int? // refuerzo periódico (ej. 365); null = no
+  max_age_days_for_primary Int? // si llega adulto, serie reducida
+  adult_primary_doses      Int?
+  is_active                Boolean     @default(true)
+  created_at               DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime    @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at               DateTime?   @db.Timestamptz(6)
+
+  vaccinations PetVaccination[]
+
+  @@index([species, is_active])
+  @@map("vaccine_catalog")
+}
+
+model PetVaccination {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id         String    @db.Uuid
+  pet_id            String    @db.Uuid
+  vaccine_id        String    @db.Uuid
+  dose_number       Int
+  is_booster        Boolean   @default(false)
+  applied_at        DateTime  @db.Date
+  next_due_at       DateTime? @db.Date
+  batch_id          String?   @db.Uuid
+  lot_code          String?
+  applied_by        String?   @db.Uuid
+  medical_record_id String?   @db.Uuid
+  document_item_id  String?   @db.Uuid
+  notes             String?
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+
+  pet       Pet            @relation(fields: [pet_id], references: [id])
+  vaccine   VaccineCatalog @relation(fields: [vaccine_id], references: [id])
+  batch     ProductBatch?  @relation(fields: [batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "pet_vaccinations_batch_fk")
+  reminders Reminder[]
+
+  @@index([tenant_id, next_due_at])
+  @@index([pet_id, vaccine_id, applied_at(sort: Desc)])
+  @@map("pet_vaccinations")
+}
+
+model Reminder {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id          String              @db.Uuid
+  pet_id             String              @db.Uuid
+  pet_vaccination_id String              @db.Uuid
+  due_date           DateTime            @db.Date
+  offset_days        Int // 7, 3, 1, 0
+  channel            NotificationChannel
+  status             NotificationStatus  @default(QUEUED)
+  notification_id    String?             @db.Uuid
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+
+  vaccination PetVaccination @relation(fields: [pet_vaccination_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "reminders_vacc_fk")
+
+  @@unique([pet_vaccination_id, offset_days, channel]) // control de duplicados
+  @@index([tenant_id, due_date])
+  @@map("reminders")
+}
+
+// ═════════════════════════════ FARMACIA ═════════════════════════════
+
+model PharmacistStaff {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String    @db.Uuid
+  branch_id             String    @db.Uuid
+  user_id               String?   @db.Uuid
+  full_name             String
+  cqfp_number           String // colegiatura Colegio Químico Farmacéutico del Perú
+  is_technical_director Boolean   @default(false)
+  valid_from            DateTime  @db.Date
+  valid_to              DateTime? @db.Date
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at            DateTime? @db.Timestamptz(6)
+
+  @@index([tenant_id, branch_id])
+  @@map("pharmacist_staff")
+}
+
+model Prescription {
+  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String           @db.Uuid
+  branch_id             String           @db.Uuid
+  kind                  PrescriptionKind
+  customer_id           String?          @db.Uuid
+  patient_name          String
+  patient_doc           String?
+  prescriber_name       String
+  prescriber_cmp        String // CMP / CMVP / COP
+  prescriber_profession String           @default("MEDICO") // MEDICO | VETERINARIO | ODONTOLOGO | OBSTETRA
+  issued_at             DateTime         @db.Date
+  valid_until           DateTime?        @db.Date
+  diagnosis             String?
+  image_path            String?
+  retained              Boolean          @default(false)
+  validated_by          String           @db.Uuid // QF que valida
+  dispensed_at          DateTime?        @db.Timestamptz(6)
+  created_at            DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at            DateTime?        @db.Timestamptz(6)
+
+  @@index([tenant_id, issued_at])
+  @@map("prescriptions")
+}
+
+/// Libro de control de estupefacientes/psicotrópicos. Saldo calculado por trigger.
+model ControlledSubstanceLog {
+  id              BigInt             @id @default(autoincrement())
+  tenant_id       String             @db.Uuid
+  branch_id       String             @db.Uuid
+  product_id      String             @db.Uuid
+  batch_id        String?            @db.Uuid
+  movement        ControlledMovement
+  quantity        Decimal            @db.Decimal(14, 3) // positiva; el signo lo da movement
+  balance         Decimal            @db.Decimal(14, 3)
+  document_id     String?            @db.Uuid
+  purchase_id     String?            @db.Uuid
+  prescription_id String?            @db.Uuid
+  counterparty    String?
+  recorded_by     String             @db.Uuid
+  occurred_at     DateTime           @default(now()) @db.Timestamptz(6)
+
+  product Product @relation(fields: [tenant_id, product_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "controlled_product_tenant_fk")
+
+  @@index([tenant_id, branch_id, product_id, id])
+  @@map("controlled_substance_log")
+}
+
+// ═════════════════════════════ IA: INGESTA ═════════════════════════════
+
+model AiIngestionJob {
+  id                       String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String       @db.Uuid
+  branch_id                String       @db.Uuid
+  storage_path             String
+  file_sha256              String       @db.Char(64)
+  mime_type                String
+  source_kind              AiSourceKind
+  status                   AiJobStatus  @default(UPLOADED)
+  model                    String?
+  extracted                Json?
+  overall_confidence       Decimal?     @db.Decimal(4, 3)
+  warnings                 String[]
+  supplier_id              String?      @db.Uuid
+  purchase_id              String?      @db.Uuid
+  duplicate_of_purchase_id String?      @db.Uuid
+  attempts                 Int          @default(0)
+  error                    String?
+  input_tokens             Int?
+  output_tokens            Int?
+  created_by               String       @db.Uuid
+  reviewed_by              String?      @db.Uuid
+  reviewed_at              DateTime?    @db.Timestamptz(6)
+  created_at               DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+
+  items AiIngestionItem[]
+
+  @@unique([tenant_id, file_sha256])
+  @@index([tenant_id, status])
+  @@map("ai_ingestion_jobs")
+}
+
+model AiIngestionItem {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id          String       @db.Uuid
+  job_id             String       @db.Uuid
+  line_no            Int
+  raw                Json
+  supplier_code      String?
+  description        String
+  quantity           Decimal      @db.Decimal(14, 3)
+  unit_code          String?
+  unit_price         Decimal      @db.Decimal(18, 6)
+  igv_included       Boolean      @default(false)
+  line_total         Decimal?     @db.Decimal(14, 2)
+  lot_code           String?
+  expiry_date        DateTime?    @db.Date
+  confidence         Decimal      @db.Decimal(4, 3)
+  matched_product_id String?      @db.Uuid
+  match_method       MatchMethod  @default(NONE)
+  match_score        Decimal?     @db.Decimal(5, 4)
+  candidates         Json? // top-N alternativas para la UI
+  units_per_package  Int? // conversión confirmada en revisión
+  status             AiItemStatus @default(NEEDS_REVIEW)
+  created_at         DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+
+  job AiIngestionJob @relation(fields: [job_id], references: [id])
+
+  @@unique([job_id, line_no])
+  @@map("ai_ingestion_items")
+}
+
+// ═══════════════════════ NOTIFICACIONES Y ALERTAS ═══════════════════════
+
+model AlertRule {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String                @db.Uuid
+  kind            AlertKind
+  enabled         Boolean               @default(true)
+  /// Umbrales en días (ej. [90,60,30,15,7,0]) o cantidades según kind
+  thresholds      Int[]
+  channels        NotificationChannel[]
+  recipient_roles String[] // admin, warehouse, pharmacist…
+  config          Json                  @default("{}")
+  created_at      DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime              @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([tenant_id, kind])
+  @@map("alert_rules")
+}
+
+model Notification {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String              @db.Uuid
+  user_id             String?             @db.Uuid // destinatario interno (IN_APP)
+  channel             NotificationChannel
+  template            String
+  recipient           String? // E.164 o email
+  payload             Json
+  status              NotificationStatus  @default(QUEUED)
+  dedupe_key          String
+  provider_message_id String?
+  attempts            Int                 @default(0)
+  error               String?
+  related_type        String?
+  related_id          String?
+  read_at             DateTime?           @db.Timestamptz(6)
+  sent_at             DateTime?           @db.Timestamptz(6)
+  delivered_at        DateTime?           @db.Timestamptz(6)
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime            @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([tenant_id, dedupe_key])
+  @@index([tenant_id, user_id, read_at])
+  @@index([status, created_at])
+  @@map("notifications")
+}
