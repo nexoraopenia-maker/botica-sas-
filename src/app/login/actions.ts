@@ -6,6 +6,7 @@ import { z } from "zod";
 import { platformDb } from "@/lib/db";
 import { ACTIVE_TENANT_COOKIE, IMPERSONATION_COOKIE } from "@/lib/auth/session";
 import { supabaseServer } from "@/lib/supabase/server";
+import { classifyLoginError, hasWrappingQuotes } from "@/lib/auth/login-errors";
 
 const loginSchema = z.object({ email: z.email(), password: z.string().min(8), next: z.string().default("/app") });
 const mfaSchema = z.object({ code: z.string().regex(/^\d{6}$/), next: z.string().default("/app") });
@@ -17,9 +18,28 @@ const safeNext = (n: string): string => (n.startsWith("/") && !n.startsWith("//"
 export async function loginAction(form: FormData): Promise<void> {
   const parsed = loginSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) redirect("/login?error=invalid");
-  const supabase = await supabaseServer();
+  let supabase: Awaited<ReturnType<typeof supabaseServer>>;
+  try {
+    supabase = await supabaseServer();
+  } catch (err) {
+    // Variables de entorno inválidas o faltantes: el mensaje lista los NOMBRES (nunca los valores)
+    console.error("[login] configuración inválida:", err instanceof Error ? err.message : err);
+    redirect("/login?error=config");
+  }
   const { data, error } = await supabase.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
-  if (error || !data.user) redirect("/login?error=credentials");
+  if (error || !data.user) {
+    const kind = error ? classifyLoginError(error) : "auth_unavailable";
+    if (kind !== "credentials") {
+      // Diagnóstico en los logs del servidor (Vercel/Netlify). Sin correo ni contraseña.
+      let host = "inválida";
+      try { host = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").host; } catch { /* URL mal formada */ }
+      console.error("[login] Supabase Auth no respondió como se esperaba", {
+        kind, code: error?.code, status: error?.status, name: error?.name, message: error?.message, supabaseHost: host,
+        anonKeyWithQuotes: hasWrappingQuotes(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+      });
+    }
+    redirect(`/login?error=${kind}`);
+  }
 
   // Administradores de plataforma: su destino por defecto es /superadmin (no pertenecen a ningún negocio)
   // y, si su MFA es obligatorio, deben verificar o enrolar un factor antes de continuar.

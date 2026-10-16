@@ -15,6 +15,10 @@ export const metadata: Metadata = { title: "Ingresar · AIMA Automatizaciones" }
 const ERRORS: Record<string, string> = {
   credentials: "Correo o contraseña incorrectos.",
   invalid: "Revise el correo y la contraseña (mínimo 8 caracteres).",
+  unconfirmed: "Su correo aún no está confirmado. Revise la invitación que le enviamos.",
+  rate_limited: "Demasiados intentos. Espere un minuto e intente nuevamente.",
+  auth_unavailable: "No se pudo conectar con el servicio de autenticación. Su contraseña no fue rechazada: es un problema de conexión o configuración del servidor. Intente nuevamente o avise al administrador.",
+  config: "El servidor no está bien configurado (variables de entorno). Avise al administrador de la plataforma.",
   no_tenant: "Su usuario no tiene acceso a ningún negocio activo. Contacte al administrador.",
 };
 

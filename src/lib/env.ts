@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { hasWrappingQuotes } from "@/lib/auth/login-errors";
 
 const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -40,6 +41,11 @@ let cached: ServerEnv | undefined;
 /** Valida variables de entorno de forma perezosa (falla rápido en el primer uso). */
 export function env(): ServerEnv {
   if (!cached) {
+    // Error típico al pegar en el panel del hosting: el valor queda con comillas literales
+    const quoted = Object.keys(serverSchema.shape).filter((k) => hasWrappingQuotes(process.env[k]));
+    if (quoted.length) {
+      throw new Error(`Variables de entorno con comillas alrededor del valor (quítelas en el panel del hosting): ${quoted.join(", ")}`);
+    }
     const parsed = serverSchema.safeParse(process.env);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
