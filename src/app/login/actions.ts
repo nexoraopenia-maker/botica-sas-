@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { platformDb } from "@/lib/db";
 import { supabaseServer } from "@/lib/supabase/server";
 
 const loginSchema = z.object({ email: z.email(), password: z.string().min(8), next: z.string().default("/app") });
@@ -15,11 +16,23 @@ export async function loginAction(form: FormData): Promise<void> {
   const parsed = loginSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) redirect("/login?error=invalid");
   const supabase = await supabaseServer();
-  const { error } = await supabase.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
-  if (error) redirect("/login?error=credentials");
+  const { data, error } = await supabase.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
+  if (error || !data.user) redirect("/login?error=credentials");
+
+  // Administradores de plataforma: su destino por defecto es /superadmin (no pertenecen a ningún negocio)
+  // y, si su MFA es obligatorio, deben verificar o enrolar un factor antes de continuar.
+  const admin = await platformDb().platformAdmin.findFirst({ where: { id: data.user.id, deleted_at: null } });
+  const requested = safeNext(parsed.data.next);
+  const target = admin && !requested.startsWith("/superadmin") ? "/superadmin" : requested;
+  const encoded = encodeURIComponent(target);
+
+  const { data: factors } = await supabase.auth.mfa.listFactors();
+  const hasVerifiedTotp = factors?.totp.some((f) => f.status === "verified") ?? false;
+  if (admin?.mfa_required && !hasVerifiedTotp) redirect(`/login/mfa/enroll?next=${encoded}`);
+
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2") redirect(`/login/mfa?next=${encodeURIComponent(safeNext(parsed.data.next))}`);
-  redirect(safeNext(parsed.data.next));
+  if (aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2") redirect(`/login/mfa?next=${encoded}`);
+  redirect(target);
 }
 
 /** Verificación TOTP: también sirve como reautenticación (renueva el timestamp en amr). */

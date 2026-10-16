@@ -1,11 +1,17 @@
 import { loginAction } from "./actions";
 
+const ERRORS: Record<string, string> = {
+  credentials: "Correo o contraseña incorrectos.",
+  invalid: "Revise el correo y la contraseña (mínimo 8 caracteres).",
+  no_tenant: "Su usuario no tiene acceso a ningún negocio activo. Contacte al administrador.",
+};
+
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
   const { next, error } = await searchParams;
   return (
     <main style={{ maxWidth: 360, margin: "10vh auto" }}>
       <h1>Ingresar</h1>
-      {error && <p role="alert" className="tag bad">No se pudo iniciar sesión.</p>}
+      {error && <p role="alert" className="alert">{ERRORS[error] ?? "No se pudo iniciar sesión."}</p>}
       <form action={loginAction}>
         <input type="hidden" name="next" value={next ?? "/app"} />
         <p><label>Correo<br /><input name="email" type="email" required autoComplete="email" /></label></p>
