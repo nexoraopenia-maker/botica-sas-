@@ -1,18 +1,16 @@
 import { requireTenant } from "@/lib/auth/session";
 import { withTenant } from "@/lib/db";
+import { EmptyState, PageHeader, Panel, soles } from "../../_components/ui";
 
 interface Row {
-  batch_id: string;
-  product_name: string;
-  lot_code: string;
-  expiry_date: Date;
-  stock: string;
-  stock_value: string;
-  days_to_expiry: number;
-  bucket: string;
+  batch_id: string; product_name: string; lot_code: string; expiry_date: Date; stock: string; stock_value: string;
+  days_to_expiry: number; bucket: string;
 }
 
-const LABEL: Record<string, string> = { EXPIRED: "Vencido", D7: "≤ 7 días", D15: "≤ 15 días", D30: "≤ 30 días", D60: "≤ 60 días", D90: "≤ 90 días" };
+const LABEL: Record<string, [string, string]> = {
+  EXPIRED: ["Vencido", "red"], D7: ["≤ 7 días", "red"], D15: ["≤ 15 días", "amber"], D30: ["≤ 30 días", "amber"],
+  D60: ["≤ 60 días", "blue"], D90: ["≤ 90 días", "gray"],
+};
 
 export default async function ExpiryPage() {
   const ctx = await requireTenant({ permission: "inventory.read" });
@@ -22,24 +20,30 @@ export default async function ExpiryPage() {
 
   return (
     <>
-      <h1>Caducidad por lote</h1>
-      <p>FEFO activo: los lotes vencidos están bloqueados para la venta. Los lotes a ≤ 60 días son candidatos a promoción.</p>
-      <table>
-        <thead><tr><th>Producto</th><th>Lote</th><th>Vence</th><th>Estado</th><th>Stock</th><th>Valor (S/)</th><th>Acción sugerida</th></tr></thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.batch_id}>
-              <td>{r.product_name}</td>
-              <td>{r.lot_code}</td>
-              <td>{r.expiry_date.toISOString().slice(0, 10)}</td>
-              <td><span className={`tag ${r.bucket === "EXPIRED" || r.bucket === "D7" ? "bad" : "warn"}`}>{LABEL[r.bucket] ?? r.bucket}</span></td>
-              <td>{r.stock}</td>
-              <td>{r.stock_value}</td>
-              <td>{r.bucket === "EXPIRED" ? "Registrar merma / devolver a proveedor" : r.days_to_expiry <= 60 ? "Promoción / exhibición preferente" : "Monitorear"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PageHeader title="Caducidad por lote" subtitle="FEFO activo: los lotes vencidos están bloqueados para la venta; los de ≤ 60 días son candidatos a promoción" />
+      <Panel>
+        {rows.length === 0 ? (
+          <EmptyState icon="clock" title="Ningún lote por vencer" text="No hay lotes con stock que venzan en los próximos 90 días." />
+        ) : (
+          <div className="app-table-wrap"><table className="app-table">
+            <thead><tr><th>Producto</th><th>Lote</th><th>Vence</th><th>Estado</th><th className="num">Stock</th><th className="num">Valor</th><th>Acción sugerida</th></tr></thead>
+            <tbody>{rows.map((r) => {
+              const [label, tone] = LABEL[r.bucket] ?? [r.bucket, "gray"];
+              return (
+                <tr key={r.batch_id}>
+                  <td><strong>{r.product_name}</strong></td>
+                  <td>{r.lot_code}</td>
+                  <td>{r.expiry_date.toISOString().slice(0, 10)}</td>
+                  <td><span className={`app-pill ${tone}`}>{label}</span></td>
+                  <td className="num">{r.stock}</td>
+                  <td className="num">{soles(r.stock_value)}</td>
+                  <td>{r.bucket === "EXPIRED" ? "Registrar merma o devolver al proveedor" : r.days_to_expiry <= 60 ? "Promoción o exhibición preferente" : "Monitorear"}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table></div>
+        )}
+      </Panel>
     </>
   );
 }

@@ -1,8 +1,10 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { platformDb } from "@/lib/db";
+import { ACTIVE_TENANT_COOKIE, IMPERSONATION_COOKIE } from "@/lib/auth/session";
 import { supabaseServer } from "@/lib/supabase/server";
 
 const loginSchema = z.object({ email: z.email(), password: z.string().min(8), next: z.string().default("/app") });
@@ -57,4 +59,14 @@ export async function confirmEnrollmentAction(form: FormData): Promise<void> {
   const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: parsed.data.factorId, code: parsed.data.code });
   if (error) redirect(`/login/mfa/enroll?error=code&next=${encodeURIComponent(next)}`);
   redirect(next);
+}
+
+/** Cierra la sesión (Supabase + cookies de contexto) y vuelve al login. */
+export async function signOutAction(): Promise<void> {
+  const supabase = await supabaseServer();
+  await supabase.auth.signOut();
+  const jar = await cookies();
+  jar.delete(ACTIVE_TENANT_COOKIE);
+  jar.delete(IMPERSONATION_COOKIE);
+  redirect("/login");
 }

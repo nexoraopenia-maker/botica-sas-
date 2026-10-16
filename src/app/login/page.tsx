@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import { redirect } from "next/navigation";
+import { getIdentity, getTenantContext } from "@/lib/auth/session";
+import { platformDb } from "@/lib/db";
+import { supabaseServer } from "@/lib/supabase/server";
 import { Inter } from "next/font/google";
 import { loginAction } from "./actions";
 import { SubmitButton } from "./submit-button";
@@ -14,8 +18,26 @@ const ERRORS: Record<string, string> = {
   no_tenant: "Su usuario no tiene acceso a ningún negocio activo. Contacte al administrador.",
 };
 
+/**
+ * Si ya hay sesión válida, /login no muestra el formulario: redirige al panel que corresponde.
+ * Así el botón "Atrás" (que vuelve a /login tras ingresar) no aparenta haber cerrado la sesión.
+ * Con ?error no se redirige, para no crear bucles (p. ej. usuario sin negocio asignado).
+ */
+async function redirectIfAuthenticated(next: string | undefined): Promise<void> {
+  const identity = await getIdentity();
+  if (!identity) return;
+  const target = next && next.startsWith("/") && !next.startsWith("//") ? next : "/app";
+  const supabase = await supabaseServer();
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal && aal.nextLevel === "aal2" && aal.currentLevel !== "aal2") redirect(`/login/mfa?next=${encodeURIComponent(target)}`);
+  const isAdmin = await platformDb().platformAdmin.findFirst({ where: { id: identity.userId, deleted_at: null }, select: { id: true } });
+  if (isAdmin) redirect(target.startsWith("/superadmin") ? target : "/superadmin");
+  if (await getTenantContext()) redirect(target.startsWith("/superadmin") ? "/app" : target);
+}
+
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
   const { next, error } = await searchParams;
+  if (!error) await redirectIfAuthenticated(next);
 
   return (
     <div className={`auth-screen ${inter.className}`}>
