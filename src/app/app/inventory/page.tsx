@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireTenant } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/auth/permissions";
 import { withTenant } from "@/lib/db";
 import { formatStock } from "@/lib/pharmacy/fractioning";
 import { D } from "@/lib/money";
@@ -10,7 +11,8 @@ interface Row {
   min_stock: string; available: string; expired: string; nearest_expiry: Date | null; batches: number;
 }
 
-export default async function InventoryPage() {
+export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ created?: string }> }) {
+  const { created } = await searchParams;
   const ctx = await requireTenant({ permission: "inventory.read" });
   const rows = await withTenant({ tenantId: ctx.tenantId, userId: ctx.userId }, (tx) => tx.$queryRaw<Row[]>`
     SELECT p.id, p.sku, p.name, p.dci, p.sale_price::text, p.units_per_package, p.min_stock::text,
@@ -24,10 +26,17 @@ export default async function InventoryPage() {
   return (
     <>
       <PageHeader title="Productos y stock" subtitle="Stock vendible por producto (los lotes vencidos se excluyen de la venta)"
-        actions={<Link href="/app/inventory/expiry" className="app-btn">Ver caducidad</Link>} />
+        actions={
+          <>
+            <Link href="/app/inventory/expiry" className="app-btn">Ver caducidad</Link>
+            {hasPermission(ctx.permissions, "products.manage") && <Link href="/app/inventory/new" className="app-btn primary">+ Nuevo producto</Link>}
+          </>
+        } />
+      {created && <p className="set-msg ok" role="status" style={{ marginBottom: 16 }}>Producto {created} creado.</p>}
       <Panel>
         {rows.length === 0 ? (
-          <EmptyState icon="box" title="Aún no hay productos" text="Cargue su primera factura de compra con IA o registre productos para empezar a controlar lotes y vencimientos." />
+          <EmptyState icon="box" title="Aún no hay productos" text="Cargue su primera factura de compra con IA o registre productos para empezar a controlar lotes y vencimientos."
+            action={hasPermission(ctx.permissions, "products.manage") ? <Link href="/app/inventory/new" className="app-btn primary">+ Nuevo producto</Link> : undefined} />
         ) : (
           <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Producto</th><th className="num">Precio</th><th className="num">Stock vendible</th><th>Lotes</th><th>Próx. vencimiento</th><th>Estado</th></tr></thead>

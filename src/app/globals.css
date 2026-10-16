@@ -487,3 +487,14 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .app-page-actions .set-tabs a { text-decoration: none; padding: 7px 14px; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--a-muted); }
 .app-page-actions .set-tabs a.on { background: #fff; color: var(--a-text); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
 @media (max-width: 640px) { .viz-barlist li { grid-template-columns: 1fr; gap: 4px; } }
+
+/* ───────── Alta de producto ───────── */
+.pf-barcode { display: flex; gap: 8px; }
+.pf-barcode input { flex: 1; min-width: 0; font-size: 16px; letter-spacing: .03em; }
+.pf-checks { gap: 8px; }
+.pf-checks .set-check { font-weight: 500; color: var(--a-text); }
+.pf-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 12px 0; background: linear-gradient(transparent, var(--a-bg) 35%); }
+@media (max-width: 640px) {
+  .pf-barcode { flex-direction: column; }
+  .pf-actions .app-btn { flex: 1; justify-content: center; }
+}
