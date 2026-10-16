@@ -36,12 +36,13 @@ export function suggestedModules(lines: BusinessLineUI[], planModules: string[])
   return [...set];
 }
 
-export const STATUS_LABEL: Record<string, { label: string; tone: "" | "warn" | "bad" | "ok" }> = {
-  TRIAL: { label: "Prueba", tone: "warn" },
-  ACTIVE: { label: "Activo", tone: "ok" },
-  SUSPENDED: { label: "Suspendido", tone: "bad" },
-  PENDING_DELETION: { label: "Por eliminar", tone: "bad" },
-  DELETED: { label: "Eliminado", tone: "bad" },
+/** Estado del cliente → texto y color de etiqueta (clases app-pill). */
+export const STATUS_LABEL: Record<string, { label: string; tone: "green" | "amber" | "red" | "gray" | "blue" }> = {
+  TRIAL: { label: "Prueba", tone: "amber" },
+  ACTIVE: { label: "Activo", tone: "green" },
+  SUSPENDED: { label: "Suspendido", tone: "red" },
+  PENDING_DELETION: { label: "Por eliminar", tone: "red" },
+  DELETED: { label: "Eliminado", tone: "gray" },
 };
 
 export function slugify(text: string, ruc: string): string {

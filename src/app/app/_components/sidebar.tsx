@@ -4,16 +4,23 @@ import Link, { useLinkStatus } from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { NavItem } from "@/lib/modules/registry";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
+
+/** Ítem de menú (lo comparten el panel del negocio y el de plataforma). */
+export interface SidebarItem {
+  href: string;
+  label: string;
+  group: string;
+  icon: IconName;
+}
 
 /** Ruta activa: coincidencia exacta o el prefijo más largo (así /app/inventory/expiry no activa /app/inventory). */
-function activeHref(pathname: string, items: NavItem[]): string | null {
-  const matches = items.filter((i) => pathname === i.href || (i.href !== "/app" && pathname.startsWith(`${i.href}/`)));
+function activeHref(pathname: string, items: SidebarItem[], root: string): string | null {
+  const matches = items.filter((i) => pathname === i.href || (i.href !== root && pathname.startsWith(`${i.href}/`)));
   return matches.sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
 }
 
-export function Sidebar({ items, tenantName }: { items: NavItem[]; tenantName: string }) {
+export function Sidebar({ items, tenantName, root = "/app" }: { items: SidebarItem[]; tenantName: string; root?: string }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   // Destino del último clic: se marca activo al instante, sin esperar la respuesta del servidor
@@ -23,7 +30,7 @@ export function Sidebar({ items, tenantName }: { items: NavItem[]; tenantName: s
     setPendingHref(null);
   }, [pathname]);
 
-  const active = pendingHref ?? activeHref(pathname, items);
+  const active = pendingHref ?? activeHref(pathname, items, root);
   const groups = [...new Set(items.map((i) => i.group))];
 
   return (

@@ -1,7 +1,7 @@
 import type { NavIcon } from "@/lib/modules/registry";
 
 /** Iconos de trazo (24×24, currentColor). Sin dependencias externas. */
-const PATHS: Record<NavIcon | "logout" | "menu" | "alert" | "trend" | "bell", string> = {
+const PATHS: Record<NavIcon | "logout" | "menu" | "alert" | "trend" | "bell" | "building" | "plus" | "enter" | "shield" | "cpu", string> = {
   home: "M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
   cart: "M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2M9 20.5h.01M17 20.5h.01",
   receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
@@ -22,6 +22,11 @@ const PATHS: Record<NavIcon | "logout" | "menu" | "alert" | "trend" | "bell", st
   alert: "M12 9v4M12 17h.01M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
   trend: "M3 17l6-6 4 4 8-8M15 7h6v6",
   bell: "M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0",
+  building: "M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4",
+  plus: "M12 5v14M5 12h14",
+  enter: "M10 17l5-5-5-5M15 12H3M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z",
+  cpu: "M7 7h10v10H7zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
 };
 
 export type IconName = keyof typeof PATHS;

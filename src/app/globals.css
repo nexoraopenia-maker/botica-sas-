@@ -498,3 +498,44 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
   .pf-barcode { flex-direction: column; }
   .pf-actions .app-btn { flex: 1; justify-content: center; }
 }
+.app-banner-exit { margin-left: auto; }
+.app-banner-exit button { border: 1px solid #e5b765; background: #fff; color: #7a4a00; border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.app-banner-exit button:hover { background: #fff8e6; }
+.app-pill svg { flex-shrink: 0; }
+
+/* ───────── Superadmin dentro del shell corporativo ───────── */
+.sa-name { font-weight: 600; color: var(--a-text); text-decoration: none; }
+.sa-name:hover { color: var(--a-blue); text-decoration: underline; }
+.sa-modules { display: flex; flex-wrap: wrap; gap: 4px; max-width: 280px; }
+.sa-actions { flex-wrap: wrap; justify-content: flex-end; }
+.app-btn.small { padding: 6px 10px; font-size: 13px; }
+.app-btn.support { color: #1f5fe0; border-color: #c9d7f5; background: #f4f8ff; }
+.app-btn.support:hover { background: #e8f0ff; }
+.app-btn.danger { color: #b42318; border-color: #f2c4c0; }
+.sa-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+.sa-detail { max-width: 1040px; }
+.sa-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: -10px 0 18px; }
+.sa-dialog { width: min(520px, 100%); }
+.sa-dialog textarea { font: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--a-line); border-radius: 10px; resize: vertical; }
+.sa-dialog-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 520px) { .sa-dialog-row { grid-template-columns: 1fr; } }
+
+/* Formularios heredados del panel (TenantForm, diálogos) con la estética del shell */
+.app-shell .card { background: var(--a-card); border: 1px solid var(--a-line); border-radius: 14px; box-shadow: var(--a-shadow); padding: 20px; margin-bottom: 16px; }
+.app-shell .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 14px; }
+.app-shell .card .app-table { margin: 0 -20px -20px; width: calc(100% + 40px); }
+.app-shell .grid { gap: 14px; }
+.app-shell .field { font-size: 13px; font-weight: 500; color: var(--a-muted); }
+.app-shell .field input, .app-shell .field select { font-size: 14.5px; color: var(--a-text); padding: 10px 12px; border-radius: 10px; border-color: var(--a-line); }
+.app-shell .field input:focus, .app-shell .field select:focus { outline: none; border-color: var(--a-blue); box-shadow: 0 0 0 3px rgba(31, 107, 255, .12); }
+.app-shell .field .hint, .app-shell .muted { color: var(--a-muted); }
+.app-shell .check { border-color: var(--a-line); border-radius: 10px; }
+.app-shell .check:has(input:checked) { border-color: #b8ccf8; background: #f4f8ff; }
+.app-shell .btn { border-radius: 10px; border-color: var(--a-line); font-weight: 500; padding: 9px 14px; }
+.app-shell .btn.primary { border-color: transparent; background: linear-gradient(90deg, var(--a-blue), #2b8cff); box-shadow: 0 4px 14px rgba(31, 107, 255, .28); }
+.app-shell .btn.danger { color: #b42318; border-color: #f2c4c0; background: #fff; }
+.app-shell .btn.small { padding: 6px 10px; font-size: 13px; }
+.app-shell .alert { border-radius: 10px; background: #fde9e8; color: #b42318; padding: 10px 14px; }
+.app-shell .success { border-radius: 10px; background: #e3f6ec; color: #16794a; padding: 10px 14px; }
+.app-shell .dialog { border-radius: 16px; padding: 22px; box-shadow: 0 24px 60px rgba(15, 23, 42, .3); }
+.app-shell .overlay { background: rgba(15, 23, 42, .5); }

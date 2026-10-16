@@ -6,6 +6,7 @@ import { hasPermission, SYSTEM_ROLES } from "@/lib/auth/permissions";
 import { visibleNav } from "@/lib/modules/registry";
 import { platformDb } from "@/lib/db";
 import { signOutAction } from "@/app/login/actions";
+import { exitSupportAction } from "@/app/superadmin/actions";
 import { Sidebar } from "./_components/sidebar";
 import { Icon } from "./_components/icons";
 
@@ -39,9 +40,12 @@ export default async function TenantLayout({ children }: { children: ReactNode }
         {ctx.impersonation && (
           <div className="app-banner" role="status">
             <Icon name="alert" size={16} />
-            Sesión de soporte {ctx.impersonation.readOnly ? "(solo lectura)" : "(con escritura)"} — expira{" "}
-            {ctx.impersonation.expiresAt.toLocaleTimeString("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" })}.
-            Todas las acciones se auditan.
+            Sesión de soporte {ctx.impersonation.readOnly ? "(solo lectura)" : "(con escritura)"} · expira a las{" "}
+            {ctx.impersonation.expiresAt.toLocaleTimeString("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" })}
+            {" "}· todas las acciones se auditan
+            <form action={exitSupportAction} className="app-banner-exit">
+              <button type="submit">Salir del modo soporte</button>
+            </form>
           </div>
         )}
         <header className="app-topbar">

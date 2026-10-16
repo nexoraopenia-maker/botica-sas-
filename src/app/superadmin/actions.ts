@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
 import { platformDb } from "@/lib/db";
@@ -191,4 +192,11 @@ export async function endImpersonationAction(): Promise<ActionResult<null>> {
   } catch (e) {
     return toActionError(e);
   }
+}
+
+/** Salir del modo soporte desde el banner de /app: cierra la sesión de impersonación y vuelve al panel. */
+export async function exitSupportAction(): Promise<void> {
+  const admin = await requirePlatformAdmin();
+  await endImpersonation(admin);
+  redirect("/superadmin");
 }

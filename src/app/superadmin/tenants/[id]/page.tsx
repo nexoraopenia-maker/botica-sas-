@@ -5,6 +5,8 @@ import { platformDb } from "@/lib/db";
 import { TenantForm, type TenantFormValues } from "@/app/superadmin/_components/tenant-form";
 import { StatusButton } from "@/app/superadmin/_components/status-button";
 import { STATUS_LABEL, type BusinessLineUI, type ModuleKeyUI } from "@/app/superadmin/_components/catalog";
+import { EnterPanelButton } from "@/app/superadmin/_components/enter-panel-button";
+import { PageHeader } from "@/app/app/_components/ui";
 
 export default async function EditTenantPage({
   params,
@@ -13,7 +15,7 @@ export default async function EditTenantPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ created?: string }>;
 }) {
-  await requirePlatformAdmin();
+  const admin = await requirePlatformAdmin();
   const { id } = await params;
   const { created } = await searchParams;
   if (!z.uuid().safeParse(id).success) notFound();
@@ -39,16 +41,21 @@ export default async function EditTenantPage({
   const name = t.trade_name ?? t.legal_name;
 
   return (
-    <main style={{ maxWidth: 960 }}>
-      <div className="page-head">
-        <div>
-          <a href="/superadmin" className="muted">← Panel</a>
-          <h1>{name}</h1>
-          <span className={`tag ${st.tone}`}>{st.label}</span>{" "}
-          <span className="tag">SUNAT {t.sunat_env === "BETA" ? "beta" : "producción"}</span>{" "}
-          {sub && <span className="tag">{sub.plan.name}{sub.trial_ends_at ? ` · prueba hasta ${sub.trial_ends_at.toLocaleDateString("es-PE")}` : ""}</span>}
-        </div>
-        <StatusButton tenantId={t.id} name={name} status={t.status} />
+    <div className="sa-detail">
+      <PageHeader
+        title={name}
+        subtitle={`RUC ${t.ruc} · ${t.legal_name}`}
+        actions={
+          <>
+            <EnterPanelButton tenantId={t.id} name={name} canWrite={admin.role === "OWNER"} />
+            <StatusButton tenantId={t.id} name={name} status={t.status} />
+          </>
+        }
+      />
+      <div className="sa-badges">
+        <span className={`app-pill ${st.tone}`}>{st.label}</span>
+        <span className={`app-pill ${t.sunat_env === "PRODUCTION" ? "green" : "amber"}`}>SUNAT {t.sunat_env === "BETA" ? "beta" : "producción"}</span>
+        {sub && <span className="app-pill blue">{sub.plan.name}{sub.trial_ends_at ? ` · prueba hasta ${sub.trial_ends_at.toLocaleDateString("es-PE")}` : ""}</span>}
       </div>
 
       {created && (
@@ -64,13 +71,13 @@ export default async function EditTenantPage({
 
       <section className="card">
         <h2>Usuarios</h2>
-        <table>
+        <table className="app-table">
           <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th></tr></thead>
           <tbody>
             {t.members.map((m) => (
               <tr key={m.id}>
                 <td>{m.user.full_name}</td><td>{m.user.email}</td><td>{m.role.name}</td>
-                <td><span className={`tag ${m.status === "ACTIVE" ? "ok" : "warn"}`}>{m.status === "INVITED" ? "Invitado" : m.status === "ACTIVE" ? "Activo" : "Deshabilitado"}</span></td>
+                <td><span className={`app-pill ${m.status === "ACTIVE" ? "green" : m.status === "INVITED" ? "amber" : "gray"}`}>{m.status === "INVITED" ? "Invitado" : m.status === "ACTIVE" ? "Activo" : "Deshabilitado"}</span></td>
               </tr>
             ))}
           </tbody>
@@ -85,6 +92,6 @@ export default async function EditTenantPage({
           Prueba beta: {t.sunat_beta_passed_at ? "aprobada" : "pendiente"}
         </p>
       </section>
-    </main>
+    </div>
   );
 }
