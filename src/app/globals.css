@@ -414,3 +414,76 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
   .set-form { padding: 16px; }
   .app-panel-head { flex-wrap: wrap; }
 }
+.set-member { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.set-secret { padding: 16px 18px; border-radius: 12px; background: #fff8e6; border: 1px solid #f3d999; color: #5c3d00; font-size: 14px; }
+.set-secret dl { display: grid; gap: 6px; margin: 12px 0 0; }
+.set-secret dl div { display: flex; gap: 10px; flex-wrap: wrap; }
+.set-secret dt { font-weight: 600; min-width: 150px; }
+.set-secret dd { margin: 0; }
+.set-secret code { font-size: 16px; padding: 2px 8px; border-radius: 6px; background: #fff; border: 1px solid #f3d999; letter-spacing: .04em; }
+
+/* ───────── Carga de facturas con IA ───────── */
+.ai-drop { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 40px 20px; border: 2px dashed #c7d3ea; border-radius: 16px; background: #fbfcff; transition: border-color .15s, background .15s; }
+.ai-drop.drag { border-color: var(--a-blue); background: #eef4ff; }
+.ai-drop h3 { margin: 8px 0 0; font-size: 17px; }
+.ai-drop p { margin: 0; }
+.ai-drop-icon { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 18px; background: #eef3ff; color: var(--a-blue); }
+.ai-drop-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+.ai-camera-btn { display: none; }
+.ai-note { margin-top: 10px !important; font-size: 13px; }
+.ai-drop .set-msg { margin-top: 12px; }
+.ai-progress { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px; }
+.ai-spinner { width: 38px; height: 38px; border-radius: 50%; border: 3px solid #dbe5fb; border-top-color: var(--a-blue); animation: ai-spin .8s linear infinite; margin-bottom: 6px; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+.ai-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; list-style: none; padding: 0; margin: 16px 0 20px; font-size: 13.5px; color: var(--a-muted); }
+.ai-steps li { padding: 12px 14px; background: var(--a-card); border: 1px solid var(--a-line); border-radius: 12px; }
+.ai-steps strong { color: var(--a-text); }
+.ai-done { padding: 36px 24px; text-align: center; }
+.ai-done h2 { margin: 10px 0 6px; font-size: 19px; }
+.ai-review { display: grid; grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.ai-preview { position: sticky; top: 84px; }
+.ai-preview img { display: block; width: 100%; max-height: 75vh; object-fit: contain; background: #f1f4f9; }
+.ai-warnings { padding: 14px 16px; border-radius: 12px; background: #fff8e6; border: 1px solid #f3d999; color: #5c3d00; font-size: 13.5px; }
+.ai-warnings ul { margin: 6px 0 0; padding-left: 18px; }
+.ai-lines { display: flex; flex-direction: column; }
+.ai-line { padding: 16px 20px; border-bottom: 1px solid #eef1f6; }
+.ai-line.low { background: #fffaf0; box-shadow: inset 3px 0 0 #f0b429; }
+.ai-line.ignored { opacity: .55; }
+.ai-line-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.ai-line-head strong { display: block; font-size: 14.5px; margin-top: 2px; }
+.ai-line-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 12px; }
+.ai-line-grid .wide { grid-column: 1 / -1; }
+.ai-footer { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; background: #fbfcfe; border-top: 1px solid var(--a-line); }
+.ai-footer > div:first-child { display: flex; justify-content: space-between; font-size: 15px; }
+.ai-footer .ai-drop-actions { justify-content: flex-end; margin-top: 0; }
+@media (max-width: 1000px) { .ai-review { grid-template-columns: 1fr; } .ai-preview { position: static; } .ai-preview img { max-height: 50vh; } }
+@media (max-width: 860px) { .ai-camera-btn { display: inline-flex; } }
+
+/* ───────── Reportes / gráficos ───────── */
+.viz-wrap { padding: 16px 20px; }
+.viz { position: relative; width: 100%; --viz-series: #2a78d6; --viz-series-on: #1c5fb0; }
+.viz svg { display: block; overflow: visible; }
+.viz-grid { stroke: #edf0f5; stroke-width: 1; }
+.viz-axis { stroke: #d5dbe5; stroke-width: 1; }
+.viz-tick { font-size: 11px; fill: var(--a-muted); font-variant-numeric: tabular-nums; }
+.viz-bar { fill: var(--viz-series); transition: fill .1s; }
+.viz-bar.on { fill: var(--viz-series-on); }
+.viz rect[tabindex]:focus { outline: none; }
+.viz rect[tabindex]:focus-visible { outline: 2px solid var(--a-blue); }
+.viz-tip { position: absolute; transform: translate(-50%, -100%); pointer-events: none; display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 10px; background: #0f172a; color: #fff; font-size: 12.5px; white-space: nowrap; box-shadow: 0 8px 24px rgba(15, 23, 42, .25); }
+.viz-tip strong { font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.viz-tip span { font-variant-numeric: tabular-nums; }
+.viz-tip-sub { color: #b8c3d6; }
+.viz-table { margin-top: 10px; font-size: 13px; }
+.viz-table summary { cursor: pointer; color: var(--a-blue); font-weight: 500; }
+.viz-table .app-table { margin-top: 8px; }
+.viz-barlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.viz-barlist li { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 13.5px; }
+.viz-barlist-label { color: var(--a-text); font-weight: 500; }
+.viz-barlist-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.viz-barlist-bar { display: block; height: 20px; border-radius: 0 4px 4px 0; background: var(--viz-series, #2a78d6); flex-shrink: 0; }
+.viz-barlist-value { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--a-text); }
+.viz-barlist-value small { color: var(--a-muted); font-size: 12px; }
+.app-page-actions .set-tabs a { text-decoration: none; padding: 7px 14px; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--a-muted); }
+.app-page-actions .set-tabs a.on { background: #fff; color: var(--a-text); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
+@media (max-width: 640px) { .viz-barlist li { grid-template-columns: 1fr; gap: 4px; } }

@@ -6,8 +6,11 @@ import { INGESTION_SYSTEM_PROMPT, ingestionUserPrompt } from "@/lib/ai/ingestion
 import { extractedInvoiceSchema, type ExtractedInvoice } from "@/lib/ai/ingestion/schema";
 
 export const INGESTION_MODEL = "claude-opus-5-5";
-/** Extracción de facturas: tarea acotada. Subir a "high" si la evaluación muestra errores de lectura. */
-const INGESTION_EFFORT = "medium" as const;
+/**
+ * Extracción de facturas: transcripción acotada. "low" mantiene la respuesta dentro del tiempo de una
+ * función serverless (la pantalla procesa al subir). Subir a "medium" si la revisión muestra errores de lectura.
+ */
+const INGESTION_EFFORT = "low" as const;
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 type ImageMediaType = (typeof IMAGE_TYPES)[number];

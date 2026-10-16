@@ -6,7 +6,8 @@ import { requireTenant } from "@/lib/auth/session";
 import { DomainError, ok, toActionError, type ActionResult } from "@/lib/result";
 import { putObject, tenantPath } from "@/lib/storage";
 import { limaPeriod } from "@/lib/time";
-import { sha256 } from "@/lib/ai/ingestion/process";
+import { platformDb } from "@/lib/db";
+import { processIngestionJob, sha256 } from "@/lib/ai/ingestion/process";
 import { approveIngestion, type approveIngestionSchema } from "@/lib/ai/ingestion/commit";
 
 const ALLOWED: Record<string, "IMAGE" | "PDF" | "XML"> = {
@@ -73,6 +74,35 @@ export async function approveIngestionAction(input: z.input<typeof approveIngest
   try {
     const ctx = await requireTenant({ permission: "purchases.manage", module: "AI_INVENTORY", mutation: true });
     return ok(await approveIngestion({ tenantId: ctx.tenantId, userId: ctx.userId }, input));
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/**
+ * Procesa la carga en el momento (sin esperar al worker): extracción → validación → emparejamiento.
+ * Idempotente por estado; el evento del outbox queda como respaldo si esta llamada se interrumpe.
+ */
+export async function runIngestionAction(jobId: string): Promise<ActionResult<{ status: string }>> {
+  try {
+    const id = z.uuid().parse(jobId);
+    const ctx = await requireTenant({ permission: "purchases.ai_ingest", module: "AI_INVENTORY", mutation: true });
+    const job = await withTenant({ tenantId: ctx.tenantId, userId: ctx.userId }, (tx) => tx.aiIngestionJob.findFirst({ where: { id } }));
+    if (!job) throw new DomainError("NOT_FOUND", "Carga no encontrada.");
+    try {
+      await processIngestionJob(job.id, job.attempts + 1);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const friendly = msg.includes("ANTHROPIC_API_KEY")
+        ? "El servicio de IA no está configurado (falta ANTHROPIC_API_KEY). Las facturas XML sí se pueden cargar."
+        : "No se pudo leer el documento. Intente nuevamente o suba una foto más nítida.";
+      await platformDb().aiIngestionJob.update({ where: { id: job.id }, data: { status: "FAILED", error: friendly } });
+      console.error("[ai.ingest]", job.id, msg);
+      throw new DomainError("AI_FAILED", friendly);
+    }
+    const after = await platformDb().aiIngestionJob.findUniqueOrThrow({ where: { id: job.id }, select: { status: true, error: true } });
+    if (after.status === "FAILED") throw new DomainError("AI_FAILED", after.error ?? "No se pudo leer el documento.");
+    return ok({ status: after.status });
   } catch (e) {
     return toActionError(e);
   }

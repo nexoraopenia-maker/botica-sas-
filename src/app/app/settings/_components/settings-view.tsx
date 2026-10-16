@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ActionResult } from "@/lib/result";
 import {
-  createBranchAction, createSeriesAction, saveAlertRuleAction, toggleSeriesAction, updateBranchAction,
+  addMemberAction, createBranchAction, createSeriesAction, saveAlertRuleAction, toggleSeriesAction, updateBranchAction, updateMemberAction,
 } from "../actions";
 
 export interface BranchView { id: string; sunatCode: string; name: string; address: string; ubigeo: string; phone: string; isActive: boolean }
@@ -16,8 +16,12 @@ export interface AlertRuleView {
   channels: ("IN_APP" | "EMAIL" | "WHATSAPP")[];
   recipientRoles: string[];
 }
+export interface MemberView {
+  id: string; email: string; fullName: string; roleKey: string; roleName: string;
+  status: "ACTIVE" | "INVITED" | "DISABLED"; branchIds: string[]; isSelf: boolean;
+}
 type DocType = "FACTURA" | "BOLETA" | "NOTA_CREDITO" | "NOTA_DEBITO";
-type Tab = "branches" | "series" | "alerts";
+type Tab = "branches" | "series" | "users" | "alerts";
 
 const DOC_LABEL: Record<DocType, string> = { FACTURA: "Factura", BOLETA: "Boleta", NOTA_CREDITO: "Nota de crédito", NOTA_DEBITO: "Nota de débito" };
 const DOC_HINT: Record<DocType, string> = { FACTURA: "F002", BOLETA: "B002", NOTA_CREDITO: "FC02 / BC02", NOTA_DEBITO: "FD02 / BD02" };
@@ -62,6 +66,9 @@ export function SettingsView(props: {
   roles: { key: string; name: string }[];
   maxBranches: number;
   whatsappEnabled: boolean;
+  /** null = el usuario no tiene permiso users.manage (la pestaña no se muestra) */
+  members: MemberView[] | null;
+  maxUsers: number;
 }) {
   const [tab, setTab] = useState<Tab>(props.initialTab);
   const select = (t: Tab) => {
@@ -71,12 +78,16 @@ export function SettingsView(props: {
   return (
     <>
       <div className="set-tabs" role="tablist" aria-label="Secciones de configuración">
-        {([["branches", "Sucursales"], ["series", "Series de comprobantes"], ["alerts", "Alertas"]] as const).map(([k, label]) => (
+        {([["branches", "Sucursales"], ["series", "Series de comprobantes"], ["users", "Usuarios"], ["alerts", "Alertas"]] as const)
+          .filter(([k]) => k !== "users" || props.members !== null).map(([k, label]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => select(k)}>{label}</button>
         ))}
       </div>
       {tab === "branches" && <Branches branches={props.branches} maxBranches={props.maxBranches} />}
       {tab === "series" && <Series branches={props.branches} series={props.series} />}
+      {tab === "users" && props.members && (
+        <Users members={props.members} roles={props.roles} branches={props.branches} maxUsers={props.maxUsers} />
+      )}
       {tab === "alerts" && <Alerts rules={props.rules} roles={props.roles} whatsappEnabled={props.whatsappEnabled} />}
     </>
   );
@@ -304,5 +315,153 @@ function AlertRuleEditor({ rule, roles, whatsappEnabled }: { rule: AlertRuleView
         <div className="set-actions"><button className="app-btn primary" disabled={pending || invalid || channels.length === 0}>{pending ? "Guardando…" : "Guardar"}</button></div>
       </form>
     </section>
+  );
+}
+
+// ───────────────────────────── Usuarios ─────────────────────────────
+
+const STATUS_LABEL: Record<MemberView["status"], [string, string]> = {
+  ACTIVE: ["Activo", "green"], INVITED: ["Invitación pendiente", "amber"], DISABLED: ["Desactivado", "gray"],
+};
+
+function Users({ members, roles, branches, maxUsers }: {
+  members: MemberView[]; roles: { key: string; name: string }[]; branches: BranchView[]; maxUsers: number;
+}) {
+  const { pending, run, banner } = useMutation();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
+  const defaultRole = roles.find((r) => r.key === "cashier")?.key ?? roles[0]?.key ?? "";
+  const empty = { email: "", fullName: "", roleKey: defaultRole, branchIds: [] as string[], mode: "temp_password" as "invite" | "temp_password" };
+  const [form, setForm] = useState(empty);
+  const seats = members.filter((m) => m.status !== "DISABLED").length;
+  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? "—";
+
+  return (
+    <div className="app-stack">
+      {banner}
+      {created && (
+        <div className="set-secret" role="status">
+          <strong>Usuario creado.</strong> Entréguele estos datos de forma privada; la contraseña no se volverá a mostrar.
+          <dl>
+            <div><dt>Correo</dt><dd>{created.email}</dd></div>
+            <div><dt>Contraseña temporal</dt><dd><code>{created.password}</code></dd></div>
+          </dl>
+          <div className="set-actions">
+            <button type="button" className="app-btn" onClick={() => void navigator.clipboard?.writeText(`Correo: ${created.email}\nContraseña: ${created.password}`)}>Copiar</button>
+            <button type="button" className="app-btn" onClick={() => setCreated(null)}>Listo</button>
+          </div>
+        </div>
+      )}
+
+      <section className="app-panel">
+        <header className="app-panel-head"><h2>Personal ({seats} de {maxUsers} usuarios de su plan)</h2></header>
+        <div className="set-list">
+          {members.map((m) => editing === m.id
+            ? <MemberEditor key={m.id} member={m} roles={roles} branches={branches} pending={pending} onCancel={() => setEditing(null)}
+                onSave={(v) => run(() => updateMemberAction({ memberId: m.id, ...v }), "Usuario actualizado.", () => setEditing(null))} />
+            : (
+              <div key={m.id} className="set-row">
+                <div className="set-member">
+                  <span className="app-avatar" aria-hidden>{m.fullName.split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}</span>
+                  <div>
+                    <strong>{m.fullName}</strong>{m.isSelf && <span className="app-pill blue" style={{ marginLeft: 6 }}>Usted</span>}
+                    <span className="app-sub">{m.email} · {m.roleName} · {m.branchIds.length ? m.branchIds.map(branchName).join(", ") : "Todas las sucursales"}</span>
+                  </div>
+                </div>
+                <div className="row-actions">
+                  <span className={`app-pill ${STATUS_LABEL[m.status][1]}`}>{STATUS_LABEL[m.status][0]}</span>
+                  <button type="button" className="app-btn" onClick={() => setEditing(m.id)}>Editar</button>
+                </div>
+              </div>
+            ))}
+        </div>
+      </section>
+
+      <section className="app-panel">
+        <header className="app-panel-head"><h2>Agregar usuario</h2></header>
+        {seats >= maxUsers ? (
+          <p className="app-muted set-pad">Alcanzó el límite de usuarios de su plan. Desactive un usuario o contacte a soporte para ampliarlo.</p>
+        ) : (
+          <form className="set-form" onSubmit={(e) => {
+            e.preventDefault();
+            const snapshot = form;
+            run(async () => {
+              const res = await addMemberAction(snapshot);
+              if (res.ok && res.data.tempPassword) setCreated({ email: snapshot.email.trim().toLowerCase(), password: res.data.tempPassword });
+              return res;
+            }, snapshot.mode === "invite" ? `Invitación enviada a ${snapshot.email}.` : "Usuario registrado.", () => setForm(empty));
+          }}>
+            <label className="set-field"><span>Nombre completo *</span>
+              <input required minLength={3} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="Ana Torres" /></label>
+            <label className="set-field"><span>Correo *</span>
+              <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="ana@su-negocio.pe" autoComplete="off" /></label>
+            <label className="set-field"><span>Rol *</span>
+              <select value={form.roleKey} onChange={(e) => setForm({ ...form, roleKey: e.target.value })}>
+                {roles.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
+              </select></label>
+            <BranchPicker branches={branches} value={form.branchIds} onChange={(branchIds) => setForm({ ...form, branchIds })} />
+            <fieldset className="set-field wide"><legend>Acceso</legend>
+              <div className="set-chips">
+                <label className={`set-chip${form.mode === "temp_password" ? " on" : ""}`}>
+                  <input type="radio" name="mode" checked={form.mode === "temp_password"} onChange={() => setForm({ ...form, mode: "temp_password" })} />
+                  Crear con contraseña temporal
+                </label>
+                <label className={`set-chip${form.mode === "invite" ? " on" : ""}`}>
+                  <input type="radio" name="mode" checked={form.mode === "invite"} onChange={() => setForm({ ...form, mode: "invite" })} />
+                  Enviar invitación por correo
+                </label>
+              </div>
+              <small>{form.mode === "temp_password"
+                ? "Se genera una contraseña que usted le entrega al usuario. No se envía ningún correo."
+                : "El usuario recibe un correo para crear su propia contraseña (el correo debe existir)."}</small>
+            </fieldset>
+            <div className="set-actions"><button className="app-btn primary" disabled={pending}>{pending ? "Guardando…" : "Agregar usuario"}</button></div>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function BranchPicker({ branches, value, onChange }: { branches: BranchView[]; value: string[]; onChange: (v: string[]) => void }) {
+  if (branches.length <= 1) return null;
+  return (
+    <fieldset className="set-field wide"><legend>Sucursales</legend>
+      <div className="set-chips">
+        <label className={`set-chip${value.length === 0 ? " on" : ""}`}>
+          <input type="checkbox" checked={value.length === 0} onChange={() => onChange([])} /> Todas
+        </label>
+        {branches.filter((b) => b.isActive).map((b) => (
+          <label key={b.id} className={`set-chip${value.includes(b.id) ? " on" : ""}`}>
+            <input type="checkbox" checked={value.includes(b.id)}
+              onChange={() => onChange(value.includes(b.id) ? value.filter((x) => x !== b.id) : [...value, b.id])} />
+            {b.name}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function MemberEditor({ member, roles, branches, pending, onSave, onCancel }: {
+  member: MemberView; roles: { key: string; name: string }[]; branches: BranchView[]; pending: boolean;
+  onSave: (v: { roleKey: string; branchIds: string[]; status: "ACTIVE" | "DISABLED" }) => void; onCancel: () => void;
+}) {
+  const [v, setV] = useState({ roleKey: member.roleKey, branchIds: member.branchIds, status: member.status === "DISABLED" ? "DISABLED" as const : "ACTIVE" as const });
+  return (
+    <form className="set-form set-edit" onSubmit={(e) => { e.preventDefault(); onSave(v); }}>
+      <label className="set-field"><span>Usuario</span><input value={`${member.fullName} · ${member.email}`} disabled /></label>
+      <label className="set-field"><span>Rol</span>
+        <select value={v.roleKey} onChange={(e) => setV({ ...v, roleKey: e.target.value })}>
+          {roles.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
+        </select></label>
+      <BranchPicker branches={branches} value={v.branchIds} onChange={(branchIds) => setV({ ...v, branchIds })} />
+      <label className="set-check"><input type="checkbox" checked={v.status === "ACTIVE"} disabled={member.isSelf}
+        onChange={(e) => setV({ ...v, status: e.target.checked ? "ACTIVE" : "DISABLED" })} /> Acceso activo{member.isSelf ? " (no puede desactivarse a sí mismo)" : ""}</label>
+      <div className="set-actions">
+        <button type="button" className="app-btn" onClick={onCancel} disabled={pending}>Cancelar</button>
+        <button className="app-btn primary" disabled={pending}>{pending ? "Guardando…" : "Guardar"}</button>
+      </div>
+    </form>
   );
 }
