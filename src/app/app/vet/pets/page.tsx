@@ -18,15 +18,15 @@ export default async function PetsPage() {
         {pets.length === 0 ? (
           <EmptyState icon="paw" title="Sin pacientes" text="Registre pacientes para llevar su historia clínica y su carnet de vacunación con recordatorios automáticos." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Paciente</th><th>Especie / raza</th><th>Propietario</th><th>Contacto</th><th>Estado</th></tr></thead>
             <tbody>{pets.map((p) => (
               <tr key={p.id}>
-                <td><strong>{p.name}</strong>{p.microchip && <span className="app-sub">Chip {p.microchip}</span>}</td>
-                <td>{SPECIES[p.species]}{p.breed ? ` · ${p.breed}` : ""}</td>
-                <td>{p.owner.full_name}</td>
-                <td>{p.owner.whatsapp ?? p.owner.phone ?? "—"}</td>
-                <td>{p.deceased_at ? <span className="app-pill gray">Fallecido</span> : <span className="app-pill green">Activo</span>}</td>
+                <td data-label="Paciente"><strong>{p.name}</strong>{p.microchip && <span className="app-sub">Chip {p.microchip}</span>}</td>
+                <td data-label="Especie / raza">{SPECIES[p.species]}{p.breed ? ` · ${p.breed}` : ""}</td>
+                <td data-label="Propietario">{p.owner.full_name}</td>
+                <td data-label="Contacto">{p.owner.whatsapp ?? p.owner.phone ?? "—"}</td>
+                <td data-label="Estado">{p.deceased_at ? <span className="app-pill gray">Fallecido</span> : <span className="app-pill green">Activo</span>}</td>
               </tr>
             ))}</tbody>
           </table></div>

@@ -17,15 +17,15 @@ export default async function PurchasesPage() {
         {rows.length === 0 ? (
           <EmptyState icon="truck" title="Sin compras registradas" text="Cada compra crea o actualiza los lotes del inventario y su kardex." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Comprobante</th><th>Proveedor</th><th>Fecha</th><th>Origen</th><th className="num">Total</th></tr></thead>
             <tbody>{rows.map((p) => (
               <tr key={p.id}>
-                <td><strong>{p.series}-{p.number}</strong></td>
-                <td>{p.supplier.legal_name}<span className="app-sub">RUC {p.supplier.ruc}</span></td>
-                <td>{p.issue_date.toISOString().slice(0, 10)}</td>
-                <td><span className="app-pill gray">{SRC[p.source]}</span></td>
-                <td className="num">{p.currency === "PEN" ? soles(p.total) : `US$ ${p.total.toFixed(2)}`}</td>
+                <td data-label="Comprobante"><strong>{p.series}-{p.number}</strong></td>
+                <td data-label="Proveedor">{p.supplier.legal_name}<span className="app-sub">RUC {p.supplier.ruc}</span></td>
+                <td data-label="Fecha">{p.issue_date.toISOString().slice(0, 10)}</td>
+                <td data-label="Origen"><span className="app-pill gray">{SRC[p.source]}</span></td>
+                <td data-label="Total" className="num">{p.currency === "PEN" ? soles(p.total) : `US$ ${p.total.toFixed(2)}`}</td>
               </tr>
             ))}</tbody>
           </table></div>

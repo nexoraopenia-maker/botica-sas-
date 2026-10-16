@@ -19,18 +19,18 @@ export default async function DocumentsPage() {
         {docs.length === 0 ? (
           <EmptyState icon="receipt" title="Sin comprobantes" text="Cuando registre ventas, aquí verá cada comprobante, su CDR y el estado de envío a SUNAT." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th className="num">IGV</th><th className="num">Total</th><th>SUNAT</th></tr></thead>
             <tbody>{docs.map((d) => {
               const [label, tone] = ST[d.status] ?? [d.status, "gray"];
               return (
                 <tr key={d.id}>
-                  <td><strong>{d.series}-{d.number}</strong><span className="app-sub">{DOC[d.doc_type]}</span></td>
-                  <td>{d.issue_date.toISOString().slice(0, 10)} {d.issue_time.slice(0, 5)}</td>
-                  <td>{d.customer_name}<span className="app-sub">{d.customer_doc_type === "NO_DOC" ? "Sin documento" : d.customer_doc_number}</span></td>
-                  <td className="num">{soles(d.igv)}</td>
-                  <td className="num"><strong>{soles(d.total)}</strong></td>
-                  <td><span className={`app-pill ${tone}`} title={d.sunat_description ?? undefined}>{label}</span></td>
+                  <td data-label="Comprobante"><strong>{d.series}-{d.number}</strong><span className="app-sub">{DOC[d.doc_type]}</span></td>
+                  <td data-label="Fecha">{d.issue_date.toISOString().slice(0, 10)} {d.issue_time.slice(0, 5)}</td>
+                  <td data-label="Cliente">{d.customer_name}<span className="app-sub">{d.customer_doc_type === "NO_DOC" ? "Sin documento" : d.customer_doc_number}</span></td>
+                  <td data-label="IGV" className="num">{soles(d.igv)}</td>
+                  <td data-label="Total" className="num"><strong>{soles(d.total)}</strong></td>
+                  <td data-label="SUNAT"><span className={`app-pill ${tone}`} title={d.sunat_description ?? undefined}>{label}</span></td>
                 </tr>
               );
             })}</tbody>

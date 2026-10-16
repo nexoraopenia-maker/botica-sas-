@@ -1,7 +1,19 @@
 import { requireTenant } from "@/lib/auth/session";
-import { ComingSoon } from "../_components/ui";
+import { loadPosContext } from "@/lib/inventory/pos-catalog";
+import { EmptyState, Panel } from "../_components/ui";
+import { Pos } from "./_components/pos";
 
-export default async function Page() {
-  await requireTenant({ permission: "pos.sell", module: "CORE" });
-  return <ComingSoon title="Punto de venta" icon="cart" description="El punto de venta con búsqueda por nombre, DCI o código de barras, descuento FEFO por lote y emisión de boletas y facturas está listo en el servidor; su pantalla de caja se habilitará en la próxima actualización." />;
+export const metadata = { title: "Punto de venta" };
+
+export default async function PosPage() {
+  const ctx = await requireTenant({ permission: "pos.sell" });
+  const pos = await loadPosContext({ tenantId: ctx.tenantId, userId: ctx.userId, branchIds: ctx.branchIds });
+  if (!pos) {
+    return (
+      <Panel>
+        <EmptyState icon="cart" title="Sin sucursal activa" text="Su usuario no tiene una sucursal activa asignada. Pida al administrador que la configure." />
+      </Panel>
+    );
+  }
+  return <Pos products={pos.products} branchId={pos.branchId} branchName={pos.branchName} series={pos.series} />;
 }

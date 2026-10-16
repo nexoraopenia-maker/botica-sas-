@@ -29,18 +29,18 @@ export default async function InventoryPage() {
         {rows.length === 0 ? (
           <EmptyState icon="box" title="Aún no hay productos" text="Cargue su primera factura de compra con IA o registre productos para empezar a controlar lotes y vencimientos." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Producto</th><th className="num">Precio</th><th className="num">Stock vendible</th><th>Lotes</th><th>Próx. vencimiento</th><th>Estado</th></tr></thead>
             <tbody>{rows.map((r) => {
               const low = D(r.min_stock).gt(0) && D(r.available).lte(r.min_stock);
               return (
                 <tr key={r.id}>
-                  <td><strong>{r.name}</strong><span className="app-sub">{r.sku}{r.dci ? ` · ${r.dci}` : ""}</span></td>
-                  <td className="num">{soles(r.sale_price)}</td>
-                  <td className="num">{formatStock(D(r.available), r.units_per_package)}</td>
-                  <td>{r.batches}</td>
-                  <td>{r.nearest_expiry?.toISOString().slice(0, 10) ?? "—"}</td>
-                  <td>
+                  <td data-label="Producto"><strong>{r.name}</strong><span className="app-sub">{r.sku}{r.dci ? ` · ${r.dci}` : ""}</span></td>
+                  <td data-label="Precio" className="num">{soles(r.sale_price)}</td>
+                  <td data-label="Stock vendible" className="num">{formatStock(D(r.available), r.units_per_package)}</td>
+                  <td data-label="Lotes">{r.batches}</td>
+                  <td data-label="Próx. vencimiento">{r.nearest_expiry?.toISOString().slice(0, 10) ?? "—"}</td>
+                  <td data-label="Estado">
                     {D(r.expired).gt(0) && <span className="app-pill red">Vencidos: {r.expired}</span>}{" "}
                     {low ? <span className="app-pill amber">Stock bajo</span> : D(r.available).isZero() ? <span className="app-pill gray">Sin stock</span> : <span className="app-pill green">OK</span>}
                   </td>

@@ -117,18 +117,18 @@ export default async function Dashboard() {
             <EmptyState icon="receipt" title="Aún no hay ventas" text="Los comprobantes emitidos desde el punto de venta aparecerán aquí con su estado ante SUNAT." />
           ) : (
             <div className="app-table-wrap">
-              <table className="app-table">
+              <table className="app-table stack">
                 <thead><tr><th>Comprobante</th><th>Cliente</th><th>Fecha</th><th className="num">Total</th><th>SUNAT</th></tr></thead>
                 <tbody>
                   {recent.map((d) => {
                     const st = STATUS[d.status] ?? { label: d.status, tone: "gray" };
                     return (
                       <tr key={d.id}>
-                        <td><strong>{d.series}-{d.number}</strong><span className="app-sub">{DOC_LABEL[d.doc_type]}</span></td>
-                        <td>{d.customer_name}</td>
-                        <td>{d.issue_date.toISOString().slice(0, 10)}</td>
-                        <td className="num">{soles(d.total)}</td>
-                        <td><span className={`app-pill ${st.tone}`}>{st.label}</span></td>
+                        <td data-label="Comprobante"><strong>{d.series}-{d.number}</strong><span className="app-sub">{DOC_LABEL[d.doc_type]}</span></td>
+                        <td data-label="Cliente">{d.customer_name}</td>
+                        <td data-label="Fecha">{d.issue_date.toISOString().slice(0, 10)}</td>
+                        <td data-label="Total" className="num">{soles(d.total)}</td>
+                        <td data-label="SUNAT"><span className={`app-pill ${st.tone}`}>{st.label}</span></td>
                       </tr>
                     );
                   })}

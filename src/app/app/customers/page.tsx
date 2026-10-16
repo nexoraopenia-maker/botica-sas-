@@ -15,14 +15,14 @@ export default async function CustomersPage() {
         {rows.length === 0 ? (
           <EmptyState icon="users" title="Sin clientes" text="Los clientes con DNI, RUC o carné de extranjería se guardan al venderles, para reutilizarlos en próximas ventas." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Cliente</th><th>Documento</th><th>Contacto</th><th>Dirección</th></tr></thead>
             <tbody>{rows.map((c) => (
               <tr key={c.id}>
-                <td><strong>{c.name}</strong></td>
-                <td>{DOCS[c.doc_type]} {c.doc_number}</td>
-                <td>{[c.phone, c.email].filter(Boolean).join(" · ") || "—"}</td>
-                <td>{c.address ?? "—"}</td>
+                <td data-label="Cliente"><strong>{c.name}</strong></td>
+                <td data-label="Documento">{DOCS[c.doc_type]} {c.doc_number}</td>
+                <td data-label="Contacto">{[c.phone, c.email].filter(Boolean).join(" · ") || "—"}</td>
+                <td data-label="Dirección">{c.address ?? "—"}</td>
               </tr>
             ))}</tbody>
           </table></div>

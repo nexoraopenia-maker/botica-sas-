@@ -25,19 +25,19 @@ export default async function ExpiryPage() {
         {rows.length === 0 ? (
           <EmptyState icon="clock" title="Ningún lote por vencer" text="No hay lotes con stock que venzan en los próximos 90 días." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Producto</th><th>Lote</th><th>Vence</th><th>Estado</th><th className="num">Stock</th><th className="num">Valor</th><th>Acción sugerida</th></tr></thead>
             <tbody>{rows.map((r) => {
               const [label, tone] = LABEL[r.bucket] ?? [r.bucket, "gray"];
               return (
                 <tr key={r.batch_id}>
-                  <td><strong>{r.product_name}</strong></td>
-                  <td>{r.lot_code}</td>
-                  <td>{r.expiry_date.toISOString().slice(0, 10)}</td>
-                  <td><span className={`app-pill ${tone}`}>{label}</span></td>
-                  <td className="num">{r.stock}</td>
-                  <td className="num">{soles(r.stock_value)}</td>
-                  <td>{r.bucket === "EXPIRED" ? "Registrar merma o devolver al proveedor" : r.days_to_expiry <= 60 ? "Promoción o exhibición preferente" : "Monitorear"}</td>
+                  <td data-label="Producto"><strong>{r.product_name}</strong></td>
+                  <td data-label="Lote">{r.lot_code}</td>
+                  <td data-label="Vence">{r.expiry_date.toISOString().slice(0, 10)}</td>
+                  <td data-label="Estado"><span className={`app-pill ${tone}`}>{label}</span></td>
+                  <td data-label="Stock" className="num">{r.stock}</td>
+                  <td data-label="Valor" className="num">{soles(r.stock_value)}</td>
+                  <td data-label="Acción sugerida">{r.bucket === "EXPIRED" ? "Registrar merma o devolver al proveedor" : r.days_to_expiry <= 60 ? "Promoción o exhibición preferente" : "Monitorear"}</td>
                 </tr>
               );
             })}</tbody>

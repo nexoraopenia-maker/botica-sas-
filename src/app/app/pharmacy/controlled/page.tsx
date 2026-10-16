@@ -17,16 +17,16 @@ export default async function ControlledPage() {
         {rows.length === 0 ? (
           <EmptyState icon="book" title="Sin movimientos" text="Las compras y ventas de productos controlados se registran aquí automáticamente; el saldo nunca puede quedar negativo." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Fecha</th><th>Producto</th><th>Movimiento</th><th className="num">Cantidad</th><th className="num">Saldo</th><th>Contraparte</th></tr></thead>
             <tbody>{rows.map((r) => (
               <tr key={String(r.id)}>
-                <td>{r.occurred_at.toLocaleString("es-PE", { timeZone: "America/Lima" })}</td>
-                <td><strong>{r.product}</strong></td>
-                <td><span className={`app-pill ${r.movement === "IN" ? "green" : r.movement === "OUT" ? "amber" : "gray"}`}>{r.movement === "IN" ? "Ingreso" : r.movement === "OUT" ? "Salida" : "Ajuste"}</span></td>
-                <td className="num">{r.quantity}</td>
-                <td className="num"><strong>{r.balance}</strong></td>
-                <td>{r.counterparty ?? "—"}</td>
+                <td data-label="Fecha">{r.occurred_at.toLocaleString("es-PE", { timeZone: "America/Lima" })}</td>
+                <td data-label="Producto"><strong>{r.product}</strong></td>
+                <td data-label="Movimiento"><span className={`app-pill ${r.movement === "IN" ? "green" : r.movement === "OUT" ? "amber" : "gray"}`}>{r.movement === "IN" ? "Ingreso" : r.movement === "OUT" ? "Salida" : "Ajuste"}</span></td>
+                <td data-label="Cantidad" className="num">{r.quantity}</td>
+                <td data-label="Saldo" className="num"><strong>{r.balance}</strong></td>
+                <td data-label="Contraparte">{r.counterparty ?? "—"}</td>
               </tr>
             ))}</tbody>
           </table></div>

@@ -16,14 +16,18 @@
     "db:migrate": "prisma migrate deploy",
     "worker": "node --conditions=react-server --import tsx src/workers/index.ts",
     "db:seed": "psql \"$DIRECT_URL\" -v ON_ERROR_STOP=1 -f prisma/seed.sql",
-    "test:db": "psql \"$TEST_PLATFORM_DATABASE_URL\" -v ON_ERROR_STOP=1 -f tests/sql/integration.sql && vitest run tests/integration"
+    "test:db": "psql \"$TEST_PLATFORM_DATABASE_URL\" -v ON_ERROR_STOP=1 -f tests/sql/integration.sql && vitest run tests/integration",
+    "demo:seed": "psql \"$DIRECT_URL\" -v ON_ERROR_STOP=1 -f prisma/demo-seed.sql",
+    "demo:sales": "node --env-file=.env.local --conditions=react-server --import tsx scripts/demo-sales.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
-    "@prisma/client": "^7.10.0",
     "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.3",
+    "@zxing/browser": "0.2.1",
+    "@zxing/library": "0.23.0",
     "fast-xml-parser": "^5.11.2",
     "jszip": "^3.10.2",
     "next": "^16.4.1",

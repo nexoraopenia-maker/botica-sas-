@@ -12,16 +12,16 @@ export default async function DueVaccinesPage() {
         {rows.length === 0 ? (
           <EmptyState icon="syringe" title="Sin vacunas pendientes" text="No hay vacunas vencidas ni programadas para los próximos 30 días." />
         ) : (
-          <div className="app-table-wrap"><table className="app-table">
+          <div className="app-table-wrap"><table className="app-table stack">
             <thead><tr><th>Paciente</th><th>Propietario</th><th>Vacuna</th><th className="num">Dosis</th><th>Fecha</th><th>Estado</th></tr></thead>
             <tbody>{rows.map((r) => (
               <tr key={`${r.pet_id}-${r.vaccine_name}`}>
-                <td><strong>{r.pet_name}</strong></td>
-                <td>{r.owner_name}{r.owner_whatsapp && <span className="app-sub">{r.owner_whatsapp}</span>}</td>
-                <td>{r.vaccine_name}</td>
-                <td className="num">{r.dose_number}</td>
-                <td>{r.next_due_at.toISOString().slice(0, 10)}</td>
-                <td>
+                <td data-label="Paciente"><strong>{r.pet_name}</strong></td>
+                <td data-label="Propietario">{r.owner_name}{r.owner_whatsapp && <span className="app-sub">{r.owner_whatsapp}</span>}</td>
+                <td data-label="Vacuna">{r.vaccine_name}</td>
+                <td data-label="Dosis" className="num">{r.dose_number}</td>
+                <td data-label="Fecha">{r.next_due_at.toISOString().slice(0, 10)}</td>
+                <td data-label="Estado">
                   <span className={`app-pill ${r.days_left < 0 ? "red" : r.days_left <= 7 ? "amber" : "blue"}`}>
                     {r.days_left < 0 ? `Vencida hace ${-r.days_left} d` : r.days_left === 0 ? "Hoy" : `En ${r.days_left} d`}
                   </span>
