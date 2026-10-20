@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { reauthAction } from "@/app/superadmin/actions";
 import type { ActionResult } from "@/lib/result";
 
@@ -32,6 +33,14 @@ export function useReauth(): {
     resolver.current = null;
   };
 
+  // Escape cierra el diálogo devolviendo el error original (nunca deja la acción colgada)
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   async function run<T>(fn: () => Promise<ActionResult<T>>): Promise<ActionResult<T>> {
     const first = await fn();
     if (first.ok || first.error.code !== "REAUTH_REQUIRED") return first;
@@ -47,8 +56,10 @@ export function useReauth(): {
     else setError(res.error.message);
   };
 
-  const dialog = open ? (
-    <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="reauth-title">
+  // Portal en <body> + capa propia: se muestra ENCIMA del diálogo que lo invocó (antes quedaba oculto
+  // detrás del diálogo de "Entrar al panel" y la acción esperaba un código que no se podía escribir).
+  const dialog = open && typeof document !== "undefined" ? createPortal(
+    <div className="overlay reauth-overlay" role="dialog" aria-modal="true" aria-labelledby="reauth-title">
       <div className="dialog">
         <h2 id="reauth-title">Confirme su identidad</h2>
         <p className="muted">Esta acción es crítica. Ingrese el código de su app autenticadora.</p>
@@ -65,7 +76,8 @@ export function useReauth(): {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   ) : null;
 
   return { run, dialog };

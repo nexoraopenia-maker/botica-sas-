@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import type { ModuleKey } from "@/generated/prisma/enums";
 import { platformDb } from "@/lib/db";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -8,6 +9,8 @@ import { DomainError } from "@/lib/result";
 import { hasPermission, type Permission } from "@/lib/auth/permissions";
 
 export const ACTIVE_TENANT_COOKIE = "nx_tenant";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const asUuid = (v: string | undefined): string | undefined => (v && UUID_RE.test(v) ? v : undefined);
 export const IMPERSONATION_COOKIE = "nx_imp";
 
 interface AmrEntry {
@@ -68,26 +71,36 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
   const jar = await cookies();
   const db = platformDb();
 
-  const impId = jar.get(IMPERSONATION_COOKIE)?.value;
+  // Sesión de soporte (impersonación). Nunca debe tumbar la página: cookie inválida, sesión vencida o
+  // un error de BD se registran y se continúa como usuario normal (requireTenant decide qué mostrar).
+  const impId = asUuid(jar.get(IMPERSONATION_COOKIE)?.value);
   if (impId) {
-    const imp = await db.impersonationSession.findFirst({
-      where: { id: impId, platform_admin_id: identity.userId, ended_at: null, expires_at: { gt: new Date() } },
-      include: { tenant: { include: { modules: { where: { enabled: true } } } } },
-    });
-    if (imp && identity.aal === "aal2") {
-      return {
-        tenantId: imp.tenant_id,
-        userId: identity.userId,
-        branchIds: [],
-        roleKey: "impersonator",
-        permissions: imp.read_only ? ["documents.read", "inventory.read", "reports.read", "audit.read"] : ["*"],
-        modules: new Set(imp.tenant.modules.map((m) => m.module)),
-        impersonation: { id: imp.id, readOnly: imp.read_only, expiresAt: imp.expires_at },
-      };
+    try {
+      const imp = await db.impersonationSession.findFirst({
+        where: { id: impId, platform_admin_id: identity.userId, ended_at: null, expires_at: { gt: new Date() } },
+        select: { id: true, tenant_id: true, read_only: true, expires_at: true },
+      });
+      if (imp && identity.aal !== "aal2") {
+        console.warn("[soporte] sesión de soporte ignorada: la sesión del superadmin no está verificada con MFA (aal2)");
+      } else if (imp) {
+        const modules = await db.tenantModule.findMany({ where: { tenant_id: imp.tenant_id, enabled: true }, select: { module: true } });
+        return {
+          tenantId: imp.tenant_id,
+          userId: identity.userId,
+          branchIds: [],
+          roleKey: "impersonator",
+          permissions: imp.read_only ? ["documents.read", "inventory.read", "reports.read", "audit.read"] : ["*"],
+          modules: new Set(modules.map((m) => m.module)),
+          impersonation: { id: imp.id, readOnly: imp.read_only, expiresAt: imp.expires_at },
+        };
+      }
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      console.error("[soporte] no se pudo leer la sesión de soporte", { code: e.code, message: e.message?.slice(0, 300) });
     }
   }
 
-  const requested = jar.get(ACTIVE_TENANT_COOKIE)?.value;
+  const requested = asUuid(jar.get(ACTIVE_TENANT_COOKIE)?.value);
   const membership = await db.tenantUser.findFirst({
     where: {
       user_id: identity.userId,
@@ -123,7 +136,15 @@ export interface RequireTenantOptions {
 /** Guard central para Server Actions, Route Handlers y Server Components. */
 export async function requireTenant(opts: RequireTenantOptions = {}): Promise<TenantContext> {
   const ctx = await getTenantContext();
-  if (!ctx) throw new DomainError("NO_TENANT", "No tiene acceso a ningún negocio activo.");
+  if (!ctx) {
+    // Un superadmin sin sesión de soporte válida no es "un usuario sin negocio": vuelve a su panel con el motivo.
+    const identity = await getIdentity();
+    if (identity && (await platformDb().platformAdmin.findFirst({ where: { id: identity.userId, deleted_at: null }, select: { id: true } }))) {
+      const hadSupportCookie = !!(await cookies()).get(IMPERSONATION_COOKIE)?.value;
+      redirect(`/superadmin?soporte=${hadSupportCookie ? "expirado" : "requerido"}`);
+    }
+    throw new DomainError("NO_TENANT", "No tiene acceso a ningún negocio activo.");
+  }
   if (opts.module && !ctx.modules.has(opts.module)) {
     throw new DomainError("MODULE_DISABLED", `El módulo ${opts.module} no está activo para su negocio.`);
   }

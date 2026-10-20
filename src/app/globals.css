@@ -557,3 +557,5 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .sun-env button.on { border-color: var(--a-blue); background: #f2f7ff; box-shadow: 0 0 0 3px rgba(31, 107, 255, .12); }
 .sun-env button:disabled:not(.on) { opacity: .55; cursor: not-allowed; }
 @media (max-width: 560px) { .sun-env { grid-template-columns: 1fr; } }
+/* La reautenticación siempre por encima de cualquier otro diálogo (incluye el de "Entrar al panel") */
+.overlay.reauth-overlay { z-index: 1000; }

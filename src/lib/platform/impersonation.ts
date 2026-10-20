@@ -42,7 +42,7 @@ export async function startImpersonation(admin: PlatformAdminContext, raw: z.inp
   });
 
   (await cookies()).set(IMPERSONATION_COOKIE, session.id, {
-    httpOnly: true, secure: true, sameSite: "strict", path: "/", expires: expiresAt,
+    httpOnly: true, secure: true, sameSite: "lax", path: "/", expires: expiresAt,
   });
   return { id: session.id, expiresAt };
 }

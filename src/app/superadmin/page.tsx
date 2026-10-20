@@ -7,8 +7,14 @@ import { PageHeader, Panel, StatCard } from "@/app/app/_components/ui";
 const money = (v: number) => `S/ ${v.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (v: number) => v.toLocaleString("es-PE");
 
-export default async function SuperadminDashboard() {
+const SUPPORT_MSG: Record<string, string> = {
+  expirado: "La sesión de soporte terminó o expiró. Use «Entrar al panel» en el cliente para abrir una nueva.",
+  requerido: "Para ver el panel de un cliente use «Entrar al panel» en la tabla de clientes.",
+};
+
+export default async function SuperadminDashboard({ searchParams }: { searchParams: Promise<{ soporte?: string }> }) {
   const admin = await requirePlatformAdmin();
+  const { soporte } = await searchParams;
   const d = await getPlatformDashboard();
   const count = (s: string) => d.tenantsByStatus.find((x) => x.status === s)?.count ?? 0;
   const active = count("ACTIVE");
@@ -20,6 +26,8 @@ export default async function SuperadminDashboard() {
     <>
       <PageHeader title="Panel de plataforma" subtitle="Clientes, ingresos y salud operativa de Nexo ERP"
         actions={<Link className="app-btn primary" href="/superadmin/tenants/new">+ Nuevo cliente</Link>} />
+
+      {soporte && SUPPORT_MSG[soporte] && <p className="set-msg bad" role="status" style={{ marginBottom: 16 }}>{SUPPORT_MSG[soporte]}</p>}
 
       <div className="app-stats">
         <StatCard label="Clientes activos" value={num(active)} hint={`${trial} en prueba${suspended ? ` · ${suspended} suspendidos` : ""}`} icon="building" tone="blue" href="/superadmin/tenants" />
