@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ActionResult } from "@/lib/result";
+import type { SunatStatus } from "@/lib/settings/sunat";
+import { SunatSettings } from "./sunat-settings";
 import {
   addMemberAction, createBranchAction, createSeriesAction, saveAlertRuleAction, toggleSeriesAction, updateBranchAction, updateMemberAction,
 } from "../actions";
@@ -21,7 +23,7 @@ export interface MemberView {
   status: "ACTIVE" | "INVITED" | "DISABLED"; branchIds: string[]; isSelf: boolean;
 }
 type DocType = "FACTURA" | "BOLETA" | "NOTA_CREDITO" | "NOTA_DEBITO";
-type Tab = "branches" | "series" | "users" | "alerts";
+type Tab = "branches" | "series" | "sunat" | "users" | "alerts";
 
 const DOC_LABEL: Record<DocType, string> = { FACTURA: "Factura", BOLETA: "Boleta", NOTA_CREDITO: "Nota de crédito", NOTA_DEBITO: "Nota de débito" };
 const DOC_HINT: Record<DocType, string> = { FACTURA: "F002", BOLETA: "B002", NOTA_CREDITO: "FC02 / BC02", NOTA_DEBITO: "FD02 / BD02" };
@@ -69,6 +71,7 @@ export function SettingsView(props: {
   /** null = el usuario no tiene permiso users.manage (la pestaña no se muestra) */
   members: MemberView[] | null;
   maxUsers: number;
+  sunat: SunatStatus;
 }) {
   const [tab, setTab] = useState<Tab>(props.initialTab);
   const select = (t: Tab) => {
@@ -78,7 +81,7 @@ export function SettingsView(props: {
   return (
     <>
       <div className="set-tabs" role="tablist" aria-label="Secciones de configuración">
-        {([["branches", "Sucursales"], ["series", "Series de comprobantes"], ["users", "Usuarios"], ["alerts", "Alertas"]] as const)
+        {([["branches", "Sucursales"], ["series", "Series de comprobantes"], ["sunat", "Facturación SUNAT"], ["users", "Usuarios"], ["alerts", "Alertas"]] as const)
           .filter(([k]) => k !== "users" || props.members !== null).map(([k, label]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => select(k)}>{label}</button>
         ))}
@@ -88,6 +91,7 @@ export function SettingsView(props: {
       {tab === "users" && props.members && (
         <Users members={props.members} roles={props.roles} branches={props.branches} maxUsers={props.maxUsers} />
       )}
+      {tab === "sunat" && <SunatSettings status={props.sunat} />}
       {tab === "alerts" && <Alerts rules={props.rules} roles={props.roles} whatsappEnabled={props.whatsappEnabled} />}
     </>
   );

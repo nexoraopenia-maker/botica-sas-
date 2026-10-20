@@ -6,6 +6,9 @@ import { open, seal, secretAad } from "@/lib/crypto/envelope";
 import { loadPfx, type LoadedCertificate } from "@/lib/sunat/certificate";
 import { DomainError } from "@/lib/result";
 
+/** "MODDATOS" → "MO••••OS": identifica cuál se configuró sin exponerlo. */
+export const maskSolUser = (u: string): string => (u.length <= 4 ? "••••" : `${u.slice(0, 2)}${"•".repeat(Math.max(u.length - 4, 2))}${u.slice(-2)}`);
+
 /** Prisma Bytes exige Uint8Array<ArrayBuffer> (copia defensiva). */
 const bytes = (b: Buffer): Uint8Array<ArrayBuffer> => new Uint8Array(b);
 
@@ -58,7 +61,8 @@ export async function storeSolCredentials(tx: Tx, tenantId: string, input: { use
       auth_tag: bytes(sealed.authTag), wrapped_dek: bytes(sealed.wrappedDek), kek_id: sealed.kekId, created_by: actor,
     },
   });
-  await tx.tenant.update({ where: { id: tenantId }, data: { sol_user: data.user } });
+  // El usuario SOL también viaja solo cifrado; en la ficha del tenant queda una máscara para mostrar
+  await tx.tenant.update({ where: { id: tenantId }, data: { sol_user: maskSolUser(data.user) } });
 }
 
 export async function storeCertificate(

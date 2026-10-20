@@ -4,6 +4,8 @@ import { EmptyState, Panel } from "../_components/ui";
 import { Pos } from "./_components/pos";
 
 export const metadata = { title: "Punto de venta" };
+// La firma y el envío a SUNAT corren tras responder (after) dentro de la misma función
+export const maxDuration = 60;
 
 export default async function PosPage() {
   const ctx = await requireTenant({ permission: "pos.sell" });

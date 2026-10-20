@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { requireTenant } from "@/lib/auth/session";
 import type { Permission } from "@/lib/auth/permissions";
+import {
+  saveSolCredentials, setSunatEnv, testBeta, updateLegalName, uploadCertificate,
+  type envSchema, type legalNameSchema, type solSchema,
+} from "@/lib/settings/sunat";
+import type { CertificateCheck } from "@/lib/platform/tenant-secrets";
+import type { SunatOutcome } from "@/lib/sunat/errors";
 import { addMember, updateMember, type AddMemberResult, type addMemberSchema, type updateMemberSchema } from "@/lib/settings/users";
 import { ok, toActionError, type ActionResult } from "@/lib/result";
 import {
@@ -47,4 +53,21 @@ export async function addMemberAction(i: z.input<typeof addMemberSchema>): Promi
 }
 export async function updateMemberAction(i: z.input<typeof updateMemberSchema>) {
   return run((ctx) => updateMember(db(ctx), i), "users.manage");
+}
+
+// ───────────── Facturación SUNAT (solo administradores: settings.manage) ─────────────
+export async function saveSolAction(i: z.input<typeof solSchema>) {
+  return run((ctx) => saveSolCredentials(db(ctx), i));
+}
+export async function uploadCertificateAction(form: FormData): Promise<ActionResult<CertificateCheck>> {
+  return run((ctx) => uploadCertificate(db(ctx), form.get("file") as File, String(form.get("password") ?? "")));
+}
+export async function updateLegalNameAction(i: z.input<typeof legalNameSchema>) {
+  return run((ctx) => updateLegalName(db(ctx), i));
+}
+export async function setSunatEnvAction(i: z.input<typeof envSchema>) {
+  return run((ctx) => setSunatEnv(db(ctx), i));
+}
+export async function testBetaAction(): Promise<ActionResult<SunatOutcome>> {
+  return run((ctx) => testBeta(db(ctx)));
 }

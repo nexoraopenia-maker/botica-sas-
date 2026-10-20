@@ -46,40 +46,73 @@ export async function runOutboxBatch(opts: { limit?: number; types?: string[]; d
         FROM app.claim_outbox(${WORKER_ID}, ${opts.types ?? null}::text[], ${opts.limit ?? 10}::int, 180)`;
     if (events.length === 0) break;
 
-    await Promise.all(
-      events.map(async (ev) => {
-        const handler = HANDLERS[ev.event_type];
-        let result: HandlerResult;
-        try {
-          result = handler
-            ? await handler((ev.payload ?? {}) as Record<string, unknown>, ev.attempts)
-            : { status: "dead", error: `Sin handler para ${ev.event_type}` };
-        } catch (err) {
-          result = { status: "retry", delayMs: 60_000 * ev.attempts, error: err instanceof Error ? err.message : String(err) };
-        }
-
-        if (result.status === "done") {
-          processed++;
-          await db.outboxEvent.update({
-            where: { id: ev.id },
-            data: { status: "DONE", processed_at: new Date(), locked_by: null, locked_until: null, last_error: null },
-          });
-          return;
-        }
-        failed++;
-        const exhausted = result.status === "dead" || ev.attempts >= ev.max_attempts;
-        await db.outboxEvent.update({
-          where: { id: ev.id },
-          data: {
-            status: exhausted ? "DEAD" : "FAILED",
-            last_error: result.error.slice(0, 2000),
-            next_attempt_at: new Date(Date.now() + (result.status === "retry" ? result.delayMs : 0)),
-            locked_by: null,
-            locked_until: null,
-          },
-        });
-      }),
-    );
+    const results = await Promise.all(events.map((ev) => runClaimed(ev)));
+    processed += results.filter((r) => r === "done").length;
+    failed += results.filter((r) => r !== "done").length;
   }
   return { processed, failed };
+}
+
+/** Ejecuta el handler de un evento ya reclamado y registra el resultado (reintento con backoff o cola muerta). */
+async function runClaimed(ev: ClaimedEvent): Promise<HandlerResult["status"]> {
+  const db = platformDb();
+  const handler = HANDLERS[ev.event_type];
+  let result: HandlerResult;
+  try {
+    result = handler
+      ? await handler((ev.payload ?? {}) as Record<string, unknown>, ev.attempts)
+      : { status: "dead", error: `Sin handler para ${ev.event_type}` };
+  } catch (err) {
+    result = { status: "retry", delayMs: 60_000 * ev.attempts, error: err instanceof Error ? err.message : String(err) };
+  }
+  if (result.status === "done") {
+    await db.outboxEvent.update({
+      where: { id: ev.id },
+      data: { status: "DONE", processed_at: new Date(), locked_by: null, locked_until: null, last_error: null },
+    });
+    return "done";
+  }
+  const exhausted = result.status === "dead" || ev.attempts >= ev.max_attempts;
+  await db.outboxEvent.update({
+    where: { id: ev.id },
+    data: {
+      status: exhausted ? "DEAD" : "FAILED",
+      last_error: result.error.slice(0, 2000),
+      next_attempt_at: new Date(Date.now() + (result.status === "retry" ? result.delayMs : 0)),
+      locked_by: null,
+      locked_until: null,
+    },
+  });
+  return result.status;
+}
+
+/**
+ * Procesa YA un evento concreto (por dedupe_key), sin esperar al worker: lo usa el POS para enviar
+ * el comprobante a SUNAT apenas se cobra. Mismo reclamo atómico que el lote (lease): si otro proceso
+ * ya lo tomó o está terminado, no hace nada. Si falla, queda programado para reintento.
+ */
+export async function runOutboxEventNow(dedupeKey: string): Promise<HandlerResult["status"] | "skipped"> {
+  const [ev] = await platformDb().$queryRaw<ClaimedEvent[]>`
+    UPDATE outbox_events
+       SET status = 'PROCESSING', locked_by = ${WORKER_ID}, locked_until = now() + interval '180 seconds', attempts = attempts + 1
+     WHERE id = (
+       SELECT id FROM outbox_events
+        WHERE dedupe_key = ${dedupeKey}
+          AND (status IN ('PENDING', 'FAILED') OR (status = 'PROCESSING' AND locked_until < now()))
+        FOR UPDATE SKIP LOCKED
+     )
+    RETURNING id, event_type, payload, attempts, max_attempts`;
+  if (!ev) return "skipped";
+  return runClaimed(ev);
+}
+
+/** Reprograma (o crea, si se descartó) el envío de un comprobante a SUNAT y lo ejecuta ahora. */
+export async function resendDocumentNow(tenantId: string, documentId: string): Promise<HandlerResult["status"] | "skipped"> {
+  const key = `document.issued:${documentId}`;
+  await platformDb().outboxEvent.upsert({
+    where: { dedupe_key: key },
+    create: { tenant_id: tenantId, aggregate_type: "document", aggregate_id: documentId, event_type: "document.issued", payload: { documentId }, dedupe_key: key },
+    update: { status: "PENDING", next_attempt_at: new Date(), attempts: 0, last_error: null, locked_by: null, locked_until: null },
+  });
+  return runOutboxEventNow(key);
 }

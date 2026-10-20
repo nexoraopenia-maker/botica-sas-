@@ -539,3 +539,21 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .app-shell .success { border-radius: 10px; background: #e3f6ec; color: #16794a; padding: 10px 14px; }
 .app-shell .dialog { border-radius: 16px; padding: 22px; box-shadow: 0 24px 60px rgba(15, 23, 42, .3); }
 .app-shell .overlay { background: rgba(15, 23, 42, .5); }
+.doc-send { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.doc-send-msg { max-width: 260px; white-space: normal; text-align: left; }
+.doc-sunat-desc { max-width: 280px; }
+
+/* ───────── Facturación SUNAT ───────── */
+.sun-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 16px 20px 4px; }
+.sun-item { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--a-line); border-radius: 12px; }
+.sun-item strong { font-size: 14px; }
+.sun-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.sun-dot.ok { background: #16a34a; } .sun-dot.warn { background: #f59e0b; } .sun-dot.bad { background: #dc2626; }
+.sun-lock { font-size: 12.5px; }
+.sun-cert code { font-size: 12px; }
+.sun-env { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sun-env button { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 14px 16px; border: 1px solid var(--a-line); border-radius: 12px; background: #fff; font: inherit; cursor: pointer; color: var(--a-text); }
+.sun-env button span { font-size: 12.5px; color: var(--a-muted); }
+.sun-env button.on { border-color: var(--a-blue); background: #f2f7ff; box-shadow: 0 0 0 3px rgba(31, 107, 255, .12); }
+.sun-env button:disabled:not(.on) { opacity: .55; cursor: not-allowed; }
+@media (max-width: 560px) { .sun-env { grid-template-columns: 1fr; } }

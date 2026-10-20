@@ -2,10 +2,12 @@ import { requireTenant } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/auth/permissions";
 import { withTenant } from "@/lib/db";
 import { ALERT_DEFAULTS, ALERT_KINDS } from "@/lib/settings/service";
+import { getSunatStatus } from "@/lib/settings/sunat";
 import { PageHeader } from "../_components/ui";
 import { SettingsView, type AlertRuleView, type BranchView, type MemberView, type SeriesView } from "./_components/settings-view";
 
 export const metadata = { title: "Configuración" };
+export const maxDuration = 60; // la prueba en beta firma y espera la respuesta de SUNAT
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const ctx = await requireTenant({ permission: "settings.manage" });
@@ -35,6 +37,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     id: m.id, email: m.user.email, fullName: m.user.full_name, roleKey: m.role.key, roleName: m.role.name,
     status: m.status as MemberView["status"], branchIds: m.branch_ids, isSelf: m.user_id === ctx.userId,
   }));
+  const sunat = await getSunatStatus(ctx.tenantId);
   const kinds = ALERT_KINDS.filter((k) => k !== "VACCINE_DUE" || ctx.modules.has("VETERINARY"));
   const rules: AlertRuleView[] = kinds.map((kind) => {
     const r = data.rules.find((x) => x.kind === kind);
@@ -50,9 +53,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
   return (
     <>
-      <PageHeader title="Configuración" subtitle="Sucursales, series de comprobantes, usuarios y alertas de su negocio" />
+      <PageHeader title="Configuración" subtitle="Sucursales, series, facturación SUNAT, usuarios y alertas de su negocio" />
       <SettingsView
-        initialTab={tab === "series" || tab === "alerts" || (tab === "users" && canUsers) ? tab : "branches"}
+        initialTab={tab === "series" || tab === "alerts" || tab === "sunat" || (tab === "users" && canUsers) ? tab : "branches"}
         branches={branches}
         series={series}
         rules={rules}
@@ -61,6 +64,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         whatsappEnabled={ctx.modules.has("WHATSAPP")}
         members={canUsers ? members : null}
         maxUsers={data.maxUsers}
+        sunat={sunat}
       />
     </>
   );

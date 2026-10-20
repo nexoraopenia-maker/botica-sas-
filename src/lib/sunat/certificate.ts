@@ -53,3 +53,27 @@ export function loadPfx(pfx: Buffer, password: string): LoadedCertificate {
     rucInSubject: ruc,
   };
 }
+
+/**
+ * Certificado en PEM (llave privada + certificado, p. ej. exportado con openssl) → PKCS#12 en memoria,
+ * para guardar y usar un único formato. La llave puede venir cifrada (ENCRYPTED PRIVATE KEY) con `password`.
+ */
+export function pemToPfx(pem: string, password: string): Buffer {
+  const certs = [...pem.matchAll(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g)].map((m) => forge.pki.certificateFromPem(m[0]));
+  if (certs.length === 0) throw new Error("El PEM no contiene un certificado (BEGIN CERTIFICATE).");
+  const keyBlock = /-----BEGIN (ENCRYPTED |RSA )?PRIVATE KEY-----[\s\S]+?-----END (ENCRYPTED |RSA )?PRIVATE KEY-----/.exec(pem)?.[0];
+  if (!keyBlock) throw new Error("El PEM no contiene la llave privada (BEGIN PRIVATE KEY).");
+  const key = keyBlock.includes("ENCRYPTED")
+    ? forge.pki.decryptRsaPrivateKey(keyBlock, password)
+    : forge.pki.privateKeyFromPem(keyBlock);
+  if (!key) throw new Error("No se pudo descifrar la llave privada: contraseña incorrecta.");
+  const p12 = forge.pkcs12.toPkcs12Asn1(key, certs, password, { algorithm: "aes256" });
+  return Buffer.from(forge.asn1.toDer(p12).getBytes(), "binary");
+}
+
+/** Acepta .pfx/.p12 (binario) o .pem (texto) y devuelve siempre PKCS#12. */
+export function normalizeCertificateFile(file: Buffer, fileName: string, password: string): Buffer {
+  const head = file.subarray(0, 64).toString("utf8");
+  const isPem = /\.pem$|\.crt$|\.key$/i.test(fileName) || head.includes("-----BEGIN");
+  return isPem ? pemToPfx(file.toString("utf8"), password) : file;
+}

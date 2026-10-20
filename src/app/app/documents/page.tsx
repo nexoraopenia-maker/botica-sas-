@@ -1,6 +1,9 @@
 import { requireTenant } from "@/lib/auth/session";
 import { withTenant } from "@/lib/db";
 import { EmptyState, PageHeader, Panel, soles } from "../_components/ui";
+import { SendToSunatButton } from "./send-button";
+
+export const maxDuration = 60;
 
 const DOC: Record<string, string> = { FACTURA: "Factura", BOLETA: "Boleta", NOTA_CREDITO: "Nota de crédito", NOTA_DEBITO: "Nota de débito" };
 const ST: Record<string, [string, string]> = {
@@ -20,7 +23,7 @@ export default async function DocumentsPage() {
           <EmptyState icon="receipt" title="Sin comprobantes" text="Cuando registre ventas, aquí verá cada comprobante, su CDR y el estado de envío a SUNAT." />
         ) : (
           <div className="app-table-wrap"><table className="app-table stack">
-            <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th className="num">IGV</th><th className="num">Total</th><th>SUNAT</th></tr></thead>
+            <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th className="num">IGV</th><th className="num">Total</th><th>SUNAT</th><th aria-label="Acciones" /></tr></thead>
             <tbody>{docs.map((d) => {
               const [label, tone] = ST[d.status] ?? [d.status, "gray"];
               return (
@@ -30,7 +33,13 @@ export default async function DocumentsPage() {
                   <td data-label="Cliente">{d.customer_name}<span className="app-sub">{d.customer_doc_type === "NO_DOC" ? "Sin documento" : d.customer_doc_number}</span></td>
                   <td data-label="IGV" className="num">{soles(d.igv)}</td>
                   <td data-label="Total" className="num"><strong>{soles(d.total)}</strong></td>
-                  <td data-label="SUNAT"><span className={`app-pill ${tone}`} title={d.sunat_description ?? undefined}>{label}</span></td>
+                  <td data-label="SUNAT">
+                    <span className={`app-pill ${tone}`} title={d.sunat_description ?? undefined}>{label}</span>
+                    {d.sunat_description && <span className="app-sub doc-sunat-desc">{d.sunat_code ? `${d.sunat_code} · ` : ""}{d.sunat_description}</span>}
+                  </td>
+                  <td data-label="">
+                    {["PENDIENTE", "ERROR_REINTENTABLE", "ENVIANDO"].includes(d.status) && <SendToSunatButton documentId={d.id} />}
+                  </td>
                 </tr>
               );
             })}</tbody>
