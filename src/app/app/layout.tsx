@@ -9,6 +9,8 @@ import { signOutAction } from "@/app/login/actions";
 import { exitSupportAction } from "@/app/superadmin/actions";
 import { Sidebar } from "./_components/sidebar";
 import { Icon } from "./_components/icons";
+import { ChangePasswordButton } from "@/app/account/change-password";
+import { InstallAppButton } from "@/app/account/install-app";
 
 const inter = Inter({ subsets: ["latin"], display: "swap" });
 
@@ -68,6 +70,8 @@ export default async function TenantLayout({ children }: { children: ReactNode }
               </summary>
               <div className="app-user-menu">
                 <p className="app-user-email">{user?.email}</p>
+                {!ctx.impersonation && <ChangePasswordButton />}
+                <InstallAppButton />
                 <form action={signOutAction}>
                   <button type="submit" className="app-user-item"><Icon name="logout" size={16} /> Cerrar sesión</button>
                 </form>

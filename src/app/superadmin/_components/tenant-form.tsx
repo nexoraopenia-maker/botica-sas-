@@ -52,6 +52,17 @@ export function TenantForm(props: Props) {
   const [planId, setPlanId] = useState(props.mode === "create" ? (props.plans[0]?.id ?? "") : "");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminFullName, setAdminFullName] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const pwOk = !adminPassword || (adminPassword.length >= 10 && /[A-Za-z]/.test(adminPassword) && /\d/.test(adminPassword));
+  const generatePassword = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+    const bytes = crypto.getRandomValues(new Uint32Array(14));
+    let pw = Array.from(bytes, (b) => chars[b % chars.length]).join("");
+    if (!/\d/.test(pw)) pw = pw.slice(0, -1) + String(bytes[0]! % 10);
+    setAdminPassword(pw);
+    setShowPassword(true);
+  };
   const [modulesTouched, setModulesTouched] = useState(props.mode === "edit");
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -124,13 +135,15 @@ export function TenantForm(props: Props) {
           slug, businessLines: v.businessLines, planId, contactName: v.contactName, contactEmail: v.contactEmail,
           contactPhone: v.contactPhone || undefined, adminEmail: adminEmail || v.contactEmail,
           adminFullName: adminFullName || v.contactName, modules: v.modules,
+          adminPassword: adminPassword || undefined,
         });
         if (!res.ok) {
           setErrors(res.error.fieldErrors ?? {});
           setFormError(res.error.message);
           return;
         }
-        router.push(`/superadmin/tenants/${res.data.tenantId}?created=1`);
+        const warn = res.data.warnings.length ? `&warn=${encodeURIComponent(res.data.warnings.join(" "))}` : "";
+        router.push(`/superadmin/tenants/${res.data.tenantId}?created=1&admin=${res.data.adminMode}${warn}`);
         return;
       }
 
@@ -209,7 +222,7 @@ export function TenantForm(props: Props) {
         {props.mode === "create" && (
           <>
             <h2 style={{ marginTop: 20 }}>Administrador del negocio</h2>
-            <p className="muted">Recibirá un correo de invitación para crear su contraseña. Si lo deja vacío se usa el contacto.</p>
+            <p className="muted">Si no indica correo o nombre se usan los del contacto. Con contraseña, el administrador puede ingresar de inmediato; sin contraseña recibe una invitación por correo.</p>
             <div className="grid">
               <label className="field">
                 <span>Email del administrador</span>
@@ -219,6 +232,19 @@ export function TenantForm(props: Props) {
               <label className="field">
                 <span>Nombre del administrador</span>
                 <input value={adminFullName} placeholder={v.contactName} onChange={(e) => setAdminFullName(e.target.value)} disabled={pending} />
+              </label>
+              <label className="field">
+                <span>Contraseña del administrador</span>
+                <span className="pw-field">
+                  <input type={showPassword ? "text" : "password"} value={adminPassword} autoComplete="new-password"
+                    onChange={(e) => setAdminPassword(e.target.value)} disabled={pending} placeholder="Vacía = enviar invitación" aria-invalid={!pwOk} />
+                  <button type="button" className="btn small" onClick={() => setShowPassword((x) => !x)} disabled={pending}>{showPassword ? "Ocultar" : "Ver"}</button>
+                  <button type="button" className="btn small" onClick={generatePassword} disabled={pending}>Generar</button>
+                </span>
+                <span className={pwOk ? "hint" : "error"}>
+                  {adminPassword ? (pwOk ? "Se creará la cuenta con el correo confirmado: podrá ingresar de inmediato." : "Mínimo 10 caracteres, con letras y números.") : "Opcional. Entréguela al cliente por un canal privado."}
+                </span>
+                {err("adminPassword") && <span className="error">{err("adminPassword")}</span>}
               </label>
             </div>
           </>
@@ -278,7 +304,7 @@ export function TenantForm(props: Props) {
 
       <div className="actions">
         <a className="btn" href="/superadmin">Cancelar</a>
-        <button type="submit" className="btn primary" disabled={pending || (props.mode === "create" && v.businessLines.length === 0)}>
+        <button type="submit" className="btn primary" disabled={pending || (props.mode === "create" && (v.businessLines.length === 0 || !pwOk))}>
           {pending ? "Guardando…" : props.mode === "create" ? "Registrar cliente" : "Guardar cambios"}
         </button>
       </div>

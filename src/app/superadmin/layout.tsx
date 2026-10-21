@@ -4,6 +4,7 @@ import { requirePlatformAdmin } from "@/lib/auth/session";
 import { signOutAction } from "@/app/login/actions";
 import { Sidebar, type SidebarItem } from "@/app/app/_components/sidebar";
 import { Icon } from "@/app/app/_components/icons";
+import { ChangePasswordButton } from "@/app/account/change-password";
 
 const inter = Inter({ subsets: ["latin"], display: "swap" });
 
@@ -38,6 +39,7 @@ export default async function SuperadminLayout({ children }: { children: ReactNo
               </summary>
               <div className="app-user-menu">
                 <p className="app-user-email">{admin.email}</p>
+                <ChangePasswordButton />
                 <form action={signOutAction}>
                   <button type="submit" className="app-user-item"><Icon name="logout" size={16} /> Cerrar sesión</button>
                 </form>

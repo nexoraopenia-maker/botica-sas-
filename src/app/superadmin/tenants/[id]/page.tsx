@@ -13,11 +13,11 @@ export default async function EditTenantPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ created?: string }>;
+  searchParams: Promise<{ created?: string; admin?: string; warn?: string }>;
 }) {
   const admin = await requirePlatformAdmin();
   const { id } = await params;
-  const { created } = await searchParams;
+  const { created, admin: adminMode, warn } = await searchParams;
   if (!z.uuid().safeParse(id).success) notFound();
 
   const t = await platformDb().tenant.findUnique({
@@ -60,9 +60,16 @@ export default async function EditTenantPage({
 
       {created && (
         <p className="success" role="status">
-          Cliente registrado. Se envió la invitación al administrador. Siguiente paso del onboarding: cargar el certificado digital y la Clave SOL.
+          Cliente registrado.{" "}
+          {adminMode === "password"
+            ? "El administrador ya puede ingresar con su correo y la contraseña definida (correo confirmado, sin invitación)."
+            : adminMode === "existing"
+              ? "El correo del administrador ya tenía cuenta: se asoció a este negocio con su contraseña actual."
+              : "Se envió la invitación por correo al administrador."}{" "}
+          Siguiente paso: que el negocio cargue su certificado digital y Clave SOL en Configuración › Facturación SUNAT.
         </p>
       )}
+      {warn && <p className="alert" role="status">{warn}</p>}
       {t.status === "SUSPENDED" && t.suspension_reason && (
         <p className="alert">Suspendido: {t.suspension_reason}</p>
       )}

@@ -9,6 +9,7 @@ import { requirePlatformAdmin, requireRecentAuth } from "@/lib/auth/session";
 import { ok, toActionError, type ActionResult } from "@/lib/result";
 import { audit } from "@/lib/audit";
 import {
+  type CreateTenantResult,
   createTenant, purgeTenant, reactivateTenant, requestTenantDeletion, setModules, suspendTenant, updateTenant,
 } from "@/lib/platform/tenants";
 import { storeCertificate, storeSolCredentials, type CertificateCheck } from "@/lib/platform/tenant-secrets";
@@ -46,7 +47,7 @@ export async function validateRucAction(ruc: string): Promise<ActionResult<Await
   }
 }
 
-export async function createTenantAction(input: CreateTenantInput): Promise<ActionResult<{ tenantId: string }>> {
+export async function createTenantAction(input: CreateTenantInput): Promise<ActionResult<CreateTenantResult>> {
   try {
     const admin = await requirePlatformAdmin(["OWNER", "SUPPORT"]);
     const res = await createTenant(admin, input);

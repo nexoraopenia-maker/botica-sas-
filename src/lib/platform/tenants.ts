@@ -46,7 +46,13 @@ async function adminAudit(tx: Tx, admin: PlatformAdminContext, tenantId: string,
 }
 
 /** Alta completa de tenant: fiscal, sucursal 0000, roles, módulos, suscripción de prueba, series e invitación. */
-export async function createTenant(admin: PlatformAdminContext, raw: CreateTenantInput): Promise<{ tenantId: string }> {
+export interface CreateTenantResult {
+  tenantId: string;
+  adminMode: "password" | "invite" | "existing";
+  warnings: string[];
+}
+
+export async function createTenant(admin: PlatformAdminContext, raw: CreateTenantInput): Promise<CreateTenantResult> {
   const input = createTenantSchema.parse(raw);
   const db = platformDb();
   const plan = await db.plan.findFirst({ where: { id: input.planId, deleted_at: null } });
@@ -56,17 +62,43 @@ export async function createTenant(admin: PlatformAdminContext, raw: CreateTenan
     input.modules ?? [...input.businessLines.flatMap((l) => LINE_MODULES[l] ?? []), ...plan.included_modules],
   );
 
-  // 1) Invitación (fuera de la transacción: es un servicio externo; si falla no se crea nada)
-  const { data: invite, error: inviteErr } = await supabaseAdmin().auth.admin.inviteUserByEmail(input.adminEmail, {
-    redirectTo: `${env().NEXT_PUBLIC_APP_URL}/auth/accept-invite`,
-    data: { full_name: input.adminFullName },
-  });
-  let adminUserId = invite?.user?.id;
-  if (inviteErr) {
-    // Usuario ya existente (pertenece a otro tenant): se reutiliza
-    const existing = await db.user.findUnique({ where: { email: input.adminEmail } });
-    if (!existing) throw new DomainError("INVITE_FAILED", `No se pudo invitar al administrador: ${inviteErr.message}`);
-    adminUserId = existing.id;
+  // 1) Cuenta del administrador (fuera de la transacción: es un servicio externo; si falla no se crea nada)
+  //    • con contraseña: createUser con correo confirmado → puede ingresar de inmediato
+  //    • sin contraseña: invitación por correo para que defina la suya
+  //    • correo ya registrado: se asocia la cuenta existente SIN cambiar su contraseña
+  // Validaciones baratas ANTES de crear cuentas externas (evita usuarios huérfanos en Supabase)
+  const dup = await db.tenant.findFirst({ where: { OR: [{ ruc: input.ruc }, { slug: input.slug }] }, select: { ruc: true } });
+  if (dup) throw new DomainError("DUPLICATE_TENANT", dup.ruc === input.ruc ? "Ya existe un cliente con ese RUC." : "Ese identificador ya está en uso.");
+
+  const warnings: string[] = [];
+  let adminMode: "password" | "invite" | "existing";
+  let adminUserId: string | undefined;
+  const existingProfile = await db.user.findUnique({ where: { email: input.adminEmail } });
+  if (existingProfile) {
+    adminUserId = existingProfile.id;
+    adminMode = "existing";
+    if (input.adminPassword) warnings.push("El correo ya tenía cuenta: se asoció al negocio y se mantuvo su contraseña actual.");
+  } else if (input.adminPassword) {
+    const { data, error } = await supabaseAdmin().auth.admin.createUser({
+      email: input.adminEmail, password: input.adminPassword, email_confirm: true, user_metadata: { full_name: input.adminFullName },
+    });
+    if (error || !data.user) {
+      throw new DomainError("ADMIN_CREATE_FAILED", /already|registered|exists/i.test(error?.message ?? "")
+        ? "Ese correo ya está registrado en la plataforma. Use otro correo o déjelo sin contraseña para asociar la cuenta existente."
+        : error?.code === "weak_password"
+          ? "Supabase rechazó la contraseña por débil: use una más larga y variada."
+          : `No se pudo crear el administrador: ${error?.message ?? "error desconocido"}`);
+    }
+    adminUserId = data.user.id;
+    adminMode = "password";
+  } else {
+    const { data: invite, error: inviteErr } = await supabaseAdmin().auth.admin.inviteUserByEmail(input.adminEmail, {
+      redirectTo: `${env().NEXT_PUBLIC_APP_URL}/auth/accept-invite`,
+      data: { full_name: input.adminFullName },
+    });
+    if (inviteErr || !invite.user) throw new DomainError("INVITE_FAILED", `No se pudo invitar al administrador: ${inviteErr?.message ?? "error desconocido"}`);
+    adminUserId = invite.user.id;
+    adminMode = "invite";
   }
 
   try {
@@ -117,14 +149,19 @@ export async function createTenant(admin: PlatformAdminContext, raw: CreateTenan
       await tx.tenantUser.create({
         data: {
           tenant_id: tenant.id, user_id: adminUserId!, role_id: roles.find((r) => r.key === "admin")!.id,
-          status: inviteErr ? "ACTIVE" : "INVITED", invited_by: admin.userId, invited_at: now,
+          status: adminMode === "invite" ? "INVITED" : "ACTIVE", invited_by: admin.userId, invited_at: now,
+          accepted_at: adminMode === "invite" ? null : now,
         },
       });
-      await adminAudit(tx, admin, tenant.id, "tenant.create", { after: { ruc: input.ruc, slug: input.slug, plan: plan.code, modules } });
+      await adminAudit(tx, admin, tenant.id, "tenant.create", { after: { ruc: input.ruc, slug: input.slug, plan: plan.code, modules, adminMode } });
       return tenant.id;
     });
-    return { tenantId };
+    return { tenantId, adminMode, warnings };
   } catch (err) {
+    // Si el negocio no se creó, se elimina la cuenta recién creada para no dejarla huérfana
+    if (adminMode !== "existing" && adminUserId) {
+      await supabaseAdmin().auth.admin.deleteUser(adminUserId).catch((e) => console.error("[tenant] no se pudo limpiar el usuario", e));
+    }
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       throw new DomainError("DUPLICATE_TENANT", "Ya existe un cliente con ese RUC o identificador.");
     }

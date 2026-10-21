@@ -11,6 +11,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // El service worker siempre se revalida (si no, una versión vieja podría quedar activa días)
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
         source: "/(.*)",
         headers: [
           { key: "X-Frame-Options", value: "DENY" },

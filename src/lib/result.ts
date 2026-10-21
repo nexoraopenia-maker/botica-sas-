@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { unstable_rethrow } from "next/navigation";
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -23,9 +22,19 @@ export function fail(code: string, message: string, fieldErrors?: Record<string,
 }
 
 /** Convierte cualquier error en ActionResult sin filtrar detalles internos al cliente. */
+/**
+ * redirect(), notFound() y el uso dinámico de Next se implementan como excepciones con un `digest`
+ * reconocible: deben propagarse, nunca convertirse en "error interno". (Equivale a unstable_rethrow,
+ * sin importar next/navigation, que no carga fuera de Next: scripts y workers usan este módulo.)
+ */
+const NEXT_CONTROL_DIGEST = /^(NEXT_REDIRECT|NEXT_HTTP_ERROR_FALLBACK|NEXT_NOT_FOUND|DYNAMIC_SERVER_USAGE|BAILOUT_TO_CLIENT_SIDE_RENDERING|NEXT_PRERENDER_INTERRUPTED)/;
+function isNextControlError(err: unknown): boolean {
+  const digest = (err as { digest?: unknown } | null)?.digest;
+  return typeof digest === "string" && NEXT_CONTROL_DIGEST.test(digest);
+}
+
 export function toActionError(err: unknown): ActionResult<never> {
-  // redirect()/notFound() de Next se implementan como excepciones: deben propagarse, no convertirse en error
-  unstable_rethrow(err);
+  if (isNextControlError(err)) throw err;
   if (err instanceof DomainError) return fail(err.code, err.message);
   if (err instanceof z.ZodError) {
     return fail("VALIDATION", "Datos inválidos", z.flattenError(err).fieldErrors as Record<string, string[]>);

@@ -28,6 +28,9 @@ export const createTenantSchema = tenantFiscalSchema.extend({
   contactPhone: z.string().trim().max(20).optional(),
   adminEmail: z.email(),
   adminFullName: z.string().trim().min(3),
+  /** Opcional: si se indica, el admin se crea con esta contraseña y el correo confirmado (sin invitación) */
+  adminPassword: z.string().max(72).optional().transform((v) => (v ? v : undefined))
+    .refine((v) => !v || (v.length >= 10 && /[A-Za-z]/.test(v) && /\d/.test(v)), "Contraseña del administrador: mínimo 10 caracteres, con letras y números"),
   oseProvider: z.enum(["SUNAT_SEE", "OSE_GENERIC"]).default("SUNAT_SEE"),
   oseEndpoint: z.url().optional(),
   /** Selección explícita desde el panel; si se omite, se derivan de rubros + plan */

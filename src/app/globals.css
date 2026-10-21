@@ -559,3 +559,26 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 @media (max-width: 560px) { .sun-env { grid-template-columns: 1fr; } }
 /* La reautenticación siempre por encima de cualquier otro diálogo (incluye el de "Entrar al panel") */
 .overlay.reauth-overlay { z-index: 1000; }
+
+/* ───────── Cambio de contraseña ───────── */
+.app-user-item.neutral { color: var(--a-text); }
+.app-user-item.neutral:hover { background: #f1f4f9; }
+.overlay.pw-overlay { z-index: 1000; background: rgba(15, 23, 42, .5); }
+.pw-dialog { width: min(420px, 100%); gap: 12px; border-radius: 16px; padding: 22px; font-family: inherit; }
+.pw-dialog .set-field input { font-size: 15px; }
+
+/* Variables del diseño también fuera del shell (diálogos en portal: cambio de contraseña, reautenticación) */
+:root {
+  --a-bg: #f4f6fb; --a-card: #ffffff; --a-text: #0f172a; --a-muted: #64748b; --a-line: #e6e9f0;
+  --a-blue: #1f6bff; --a-cyan: #19c3ff; --a-side: #0b1220; --a-side-2: #111a2e; --a-side-text: #c3cbe0;
+  --a-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 4px 16px rgba(15, 23, 42, .06);
+}
+.app-install-help { margin: 4px 10px 8px; font-size: 12.5px; color: var(--a-muted); line-height: 1.45; }
+@supports (padding: env(safe-area-inset-top)) {
+  /* App instalada en iPhone con barra de estado translúcida: respetar el notch */
+  .app-topbar { padding-top: env(safe-area-inset-top); height: calc(64px + env(safe-area-inset-top)); }
+  .app-sidebar { padding-top: env(safe-area-inset-top); }
+  .pos-bar { bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+.pw-field { display: flex; gap: 6px; }
+.pw-field input { flex: 1; min-width: 0; }
