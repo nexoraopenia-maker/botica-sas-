@@ -17,11 +17,51 @@ const globalForPrisma = globalThis as unknown as {
   platformDb?: PrismaClient;
 };
 
+/** Vercel/Netlify/Lambda: muchas instancias efímeras, cada una con su propio pool. */
+const SERVERLESS = !!(process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+/**
+ * En serverless, el pooler de Supabase en modo *session* (puerto 5432) admite pocos clientes en total y
+ * se agota con varias instancias ("max clients reached"), lo que aparece como PrismaClientKnownRequestError
+ * en la primera consulta de cada página. El modo *transaction* (6543) es el indicado: se usa automáticamente.
+ * Las migraciones usan DIRECT_URL y no pasan por aquí.
+ */
+export function serverlessConnectionString(url: string, serverless = SERVERLESS): string {
+  if (!serverless) return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname.endsWith(".pooler.supabase.com") && u.port === "5432") {
+      u.port = "6543";
+      console.warn(`[db] ${u.username.split(".")[0]}: pooler en modo session (5432) en serverless → usando modo transaction (6543). Actualice la variable de entorno.`);
+      return u.toString();
+    }
+  } catch { /* URL no estándar: se usa tal cual */ }
+  return url;
+}
+
 function makeClient(connectionString: string): PrismaClient {
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString, max: 10 }),
+    adapter: new PrismaPg({
+      connectionString: serverlessConnectionString(connectionString),
+      // Pocas conexiones por instancia en serverless (se multiplican por instancias) y liberación rápida
+      max: SERVERLESS ? 2 : 10,
+      idleTimeoutMillis: SERVERLESS ? 5_000 : 30_000,
+      connectionTimeoutMillis: 10_000,
+    }),
     log: env().NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
+}
+
+/** Extrae el error real de PostgreSQL que Prisma envuelve en "Invalid `prisma.x()` invocation". */
+export function describeDbError(err: unknown): Record<string, unknown> {
+  const e = err as { code?: string; message?: string; meta?: { driverAdapterError?: { cause?: { originalCode?: string; originalMessage?: string; kind?: string; message?: string } } } };
+  const cause = e?.meta?.driverAdapterError?.cause;
+  return {
+    prismaCode: e?.code,
+    pgCode: cause?.originalCode,
+    kind: cause?.kind,
+    detail: (cause?.originalMessage ?? cause?.message ?? e?.message ?? String(err)).slice(0, 400),
+  };
 }
 
 export function runtimeDb(): PrismaClient {

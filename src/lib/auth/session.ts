@@ -3,7 +3,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ModuleKey } from "@/generated/prisma/enums";
-import { platformDb } from "@/lib/db";
+import { describeDbError, platformDb } from "@/lib/db";
 import { supabaseServer } from "@/lib/supabase/server";
 import { DomainError } from "@/lib/result";
 import { hasPermission, type Permission } from "@/lib/auth/permissions";
@@ -101,17 +101,24 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
   }
 
   const requested = asUuid(jar.get(ACTIVE_TENANT_COOKIE)?.value);
-  const membership = await db.tenantUser.findFirst({
-    where: {
-      user_id: identity.userId,
-      status: "ACTIVE",
-      deleted_at: null,
-      ...(requested ? { tenant_id: requested } : {}),
-      tenant: { status: { in: ["TRIAL", "ACTIVE"] }, deleted_at: null },
-    },
-    include: { role: true, tenant: { include: { modules: { where: { enabled: true } } } } },
-    orderBy: { created_at: "asc" },
-  });
+  let membership;
+  try {
+    membership = await db.tenantUser.findFirst({
+      where: {
+        user_id: identity.userId,
+        status: "ACTIVE",
+        deleted_at: null,
+        ...(requested ? { tenant_id: requested } : {}),
+        tenant: { status: { in: ["TRIAL", "ACTIVE"] }, deleted_at: null },
+      },
+      include: { role: true, tenant: { include: { modules: { where: { enabled: true } } } } },
+      orderBy: { created_at: "asc" },
+    });
+  } catch (err) {
+    // Deja en los logs la causa real (p. ej. "max clients reached" del pooler) en lugar de solo "Invalid invocation"
+    console.error("[tenant] no se pudo resolver el negocio del usuario", describeDbError(err));
+    throw err;
+  }
   if (!membership) return null;
 
   return {
