@@ -11,7 +11,7 @@ const EXPORT_TABLES = [
   "tenants", "branches", "tenant_users", "roles", "customers", "suppliers", "product_categories", "products",
   "product_batches", "stock_movements", "purchases", "purchase_items", "document_series", "documents",
   "document_items", "document_item_lots", "document_payments", "sunat_submissions", "owners", "pets",
-  "medical_records", "pet_vaccinations", "pharmacist_staff", "prescriptions", "cash_closures", "service_orders", "service_order_payments", "controlled_substance_log", "audit_logs",
+  "medical_records", "pet_vaccinations", "pharmacist_staff", "prescriptions", "cash_closures", "controlled_substance_log", "audit_logs",
 ] as const;
 
 /** Exportación completa previa a la eliminación: NDJSON por tabla + índice de XML/CDR en Storage. */

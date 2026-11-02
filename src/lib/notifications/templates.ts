@@ -34,13 +34,6 @@ export function renderTemplate(template: string, p: Payload): RenderedMessage {
         waTemplate: "vacuna_hoy",
         waParams: [s(p.ownerName), s(p.petName), s(p.vaccine), s(p.clinic)],
       };
-    case "payment_due_soon":
-      return {
-        subject: `Recordatorio de pago: orden ${s(p.order)}`,
-        text: `Hola ${s(p.customerName)}, te recordamos que el saldo de S/ ${s(p.balance)} de tu orden ${s(p.order)} (${s(p.item)}) vence el ${fmtDate(p.dueDate)}. Gracias por tu preferencia, ${s(p.business)}.`,
-        waTemplate: "recordatorio_cobranza",
-        waParams: [s(p.customerName), s(p.balance), s(p.order), s(p.item), fmtDate(p.dueDate), s(p.business)],
-      };
     case "stock_expiring":
       return {
         subject: `Lote por vencer: ${s(p.product)}`,

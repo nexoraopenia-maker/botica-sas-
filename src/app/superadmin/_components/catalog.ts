@@ -4,7 +4,6 @@ export const MODULES = [
   { key: "PHARMACY", label: "Farmacia", hint: "Recetas, controlados, DCI y genéricos, fraccionamiento" },
   { key: "VETERINARY", label: "Veterinaria", hint: "Pacientes, historia clínica, carnet y recordatorios de vacunas" },
   { key: "AGRO", label: "Agro", hint: "Registro SENASA, periodos de retiro, especie destino" },
-  { key: "WORKSHOP", label: "Taller mecánico", hint: "Órdenes de servicio, fotos de recepción y cuentas por cobrar" },
   { key: "AI_INVENTORY", label: "IA de inventario", hint: "Carga de facturas de compra desde foto, PDF o XML" },
   { key: "WHATSAPP", label: "WhatsApp", hint: "Recordatorios a propietarios por WhatsApp" },
   { key: "MAGISTRAL", label: "Preparados magistrales", hint: "Requiere Farmacia", requires: "PHARMACY" },
@@ -18,7 +17,6 @@ export const BUSINESS_LINES = [
   { key: "VETERINARY", label: "Veterinaria" },
   { key: "PHARMACY", label: "Botica / Farmacia" },
   { key: "RETAIL", label: "Comercio general" },
-  { key: "WORKSHOP", label: "Taller mecánico" },
 ] as const;
 
 export type BusinessLineUI = (typeof BUSINESS_LINES)[number]["key"];
@@ -29,7 +27,6 @@ const LINE_MODULES: Record<BusinessLineUI, ModuleKeyUI[]> = {
   VETERINARY: ["VETERINARY"],
   PHARMACY: ["PHARMACY"],
   RETAIL: [],
-  WORKSHOP: ["WORKSHOP"],
 };
 
 export function suggestedModules(lines: BusinessLineUI[], planModules: string[]): ModuleKeyUI[] {
