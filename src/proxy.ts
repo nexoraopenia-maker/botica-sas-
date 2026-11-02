@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { PATH_HEADER } from "@/lib/modules/registry";
 
 /**
  * Refresca la sesión de Supabase y hace el chequeo optimista de autenticación.
@@ -7,6 +8,8 @@ import { createServerClient } from "@supabase/ssr";
  * Server Actions vía requireTenant / requirePlatformAdmin.
  */
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  // Ruta para el guard del layout del panel. Se sobrescribe siempre: un cliente no puede falsificarla.
+  request.headers.set(PATH_HEADER, `${request.nextUrl.pathname}${request.nextUrl.search}`);
   let response = NextResponse.next({ request });
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

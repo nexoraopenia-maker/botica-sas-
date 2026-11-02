@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireTenant } from "@/lib/auth/session";
 import { withTenant } from "@/lib/db";
 import { EmptyState, PageHeader, Panel } from "../_components/ui";
@@ -19,7 +20,7 @@ export default async function CustomersPage() {
             <thead><tr><th>Cliente</th><th>Documento</th><th>Contacto</th><th>Dirección</th></tr></thead>
             <tbody>{rows.map((c) => (
               <tr key={c.id}>
-                <td data-label="Cliente"><strong>{c.name}</strong></td>
+                <td data-label="Cliente"><Link href={`/app/customers/${c.id}`} className="app-link"><strong>{c.name}</strong></Link></td>
                 <td data-label="Documento">{DOCS[c.doc_type]} {c.doc_number}</td>
                 <td data-label="Contacto">{[c.phone, c.email].filter(Boolean).join(" · ") || "—"}</td>
                 <td data-label="Dirección">{c.address ?? "—"}</td>

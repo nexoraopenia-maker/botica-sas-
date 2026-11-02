@@ -83,6 +83,9 @@ function mapDbError(err: unknown): never {
   if (msg.includes("Stock insuficiente")) {
     throw new DomainError("INSUFFICIENT_STOCK", "Stock insuficiente (lotes vencidos o en cuarentena no se venden).");
   }
+  if (msg.includes("Saldo negativo en libro de controlados")) {
+    throw new DomainError("CONTROLLED_NO_BALANCE", "El libro de controlados no tiene saldo de este producto: registre su ingreso antes de venderlo.");
+  }
   if (msg.includes("lock timeout") || msg.includes("55P03") || msg.includes("deadlock")) {
     throw new DomainError("BUSY_RETRY", "Caja ocupada, reintentando… (operación segura de repetir)");
   }

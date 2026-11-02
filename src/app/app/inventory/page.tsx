@@ -8,14 +8,15 @@ import { EmptyState, PageHeader, Panel, soles } from "../_components/ui";
 
 interface Row {
   id: string; sku: string; name: string; dci: string | null; sale_price: string; units_per_package: number;
-  min_stock: string; available: string; expired: string; nearest_expiry: Date | null; batches: number;
+  min_stock: string; is_controlled: boolean; withdrawal: number | null; available: string; expired: string; nearest_expiry: Date | null; batches: number;
 }
 
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ created?: string }> }) {
   const { created } = await searchParams;
   const ctx = await requireTenant({ permission: "inventory.read" });
   const rows = await withTenant({ tenantId: ctx.tenantId, userId: ctx.userId }, (tx) => tx.$queryRaw<Row[]>`
-    SELECT p.id, p.sku, p.name, p.dci, p.sale_price::text, p.units_per_package, p.min_stock::text,
+    SELECT p.id, p.sku, p.name, p.dci, p.sale_price::text, p.units_per_package, p.min_stock::text, p.is_controlled,
+           greatest(p.withdrawal_days_meat, p.withdrawal_days_milk) AS withdrawal,
            coalesce(sum(b.stock) FILTER (WHERE b.expiry_date IS NULL OR b.expiry_date >= app.lima_today()), 0)::text AS available,
            coalesce(sum(b.stock) FILTER (WHERE b.expiry_date < app.lima_today()), 0)::text AS expired,
            min(b.expiry_date) FILTER (WHERE b.stock > 0 AND b.expiry_date >= app.lima_today()) AS nearest_expiry,
@@ -50,6 +51,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                   <td data-label="Lotes">{r.batches}</td>
                   <td data-label="Próx. vencimiento">{r.nearest_expiry?.toISOString().slice(0, 10) ?? "—"}</td>
                   <td data-label="Estado">
+                    {r.is_controlled && <span className="app-pill red" title="Solo se dispensa con receta especial: DNI y colegiatura del médico">Controlado</span>}{" "}
+                    {!!r.withdrawal && <span className="app-pill red" title="Periodo de retiro antes del consumo humano">Retiro {r.withdrawal} d</span>}{" "}
                     {D(r.expired).gt(0) && <span className="app-pill red">Vencidos: {r.expired}</span>}{" "}
                     {low ? <span className="app-pill amber">Stock bajo</span> : D(r.available).isZero() ? <span className="app-pill gray">Sin stock</span> : <span className="app-pill green">OK</span>}
                   </td>

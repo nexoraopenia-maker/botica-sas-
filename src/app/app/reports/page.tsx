@@ -1,10 +1,15 @@
 import Link from "next/link";
-import { requireTenant } from "@/lib/auth/session";
+import { requirePage } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/auth/permissions";
+import { forbidden } from "next/navigation";
+import { PERIOD_RE, pleSummary } from "@/lib/reports/ple";
+import { limaPeriod } from "@/lib/time";
 import { loadReports } from "@/lib/reports/queries";
 import { formatStock } from "@/lib/pharmacy/fractioning";
 import { D } from "@/lib/money";
 import { EmptyState, PageHeader, Panel, StatCard } from "../_components/ui";
 import { BarList, DailySalesChart } from "./_components/charts";
+import { PleTab } from "./_components/ple-tab";
 
 export const metadata = { title: "Reportes" };
 
@@ -14,9 +19,31 @@ const money = (v: number) => `S/ ${v.toLocaleString("es-PE", { minimumFractionDi
 const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toLocaleString("es-PE", { maximumFractionDigits: 1 })}%`);
 const day = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
-export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
-  const ctx = await requireTenant({ permission: "reports.read" });
-  const { days: raw } = await searchParams;
+function ReportTabs({ ple }: { ple: boolean }) {
+  return (
+    <div className="set-tabs" role="tablist" aria-label="Sección de reportes" style={{ marginBottom: 0 }}>
+      <Link href="/app/reports" role="tab" aria-selected={!ple} className={ple ? "" : "on"}>Ventas e inventario</Link>
+      <Link href="/app/reports?tab=ple" role="tab" aria-selected={ple} className={ple ? "on" : ""}>Libros Electrónicos (PLE)</Link>
+    </div>
+  );
+}
+
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ days?: string; tab?: string; period?: string }> }) {
+  const params = await searchParams;
+  const ctx = await requirePage({ permission: params.tab === "ple" ? "reports.accounting" : "reports.read" });
+  const canPle = hasPermission(ctx.permissions, "reports.accounting");
+  if (params.tab === "ple") {
+    if (!canPle) forbidden();
+    const period = params.period && PERIOD_RE.test(params.period) ? params.period : limaPeriod();
+    const summary = await pleSummary({ tenantId: ctx.tenantId, userId: ctx.userId }, period);
+    return (
+      <>
+        <PageHeader title="Reportes" subtitle="Libros Electrónicos (PLE) para SUNAT" actions={<ReportTabs ple />} />
+        <PleTab period={period} summary={summary} />
+      </>
+    );
+  }
+  const { days: raw } = params;
   const days = PERIODS.find((p) => String(p) === raw) ?? 30;
   const r = await loadReports({ tenantId: ctx.tenantId, userId: ctx.userId }, days);
   const k = r.kpis;
@@ -27,6 +54,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         title="Reportes"
         subtitle={`Ventas, márgenes e inventario · del ${day(r.from)} al ${day(r.to)}`}
         actions={
+          <>
+          {canPle && <ReportTabs ple={false} />}
           <div className="set-tabs" role="tablist" aria-label="Periodo" style={{ marginBottom: 0 }}>
             {PERIODS.map((p) => (
               <Link key={p} href={`/app/reports?days=${p}`} role="tab" aria-selected={p === days} className={p === days ? "on" : ""} scroll={false}>
@@ -34,6 +63,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               </Link>
             ))}
           </div>
+          </>
         }
       />
 

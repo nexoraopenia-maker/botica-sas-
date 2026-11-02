@@ -22,6 +22,11 @@ export interface PosProduct {
   available: string;
   nearestExpiry: string | null;
   withdrawalDays: number | null;
+  withdrawalMeat: number | null;
+  withdrawalMilk: number | null;
+  isControlled: boolean;
+  /** Tipo de receta que exige el producto (null = venta libre) */
+  rxKind: "SIMPLE" | "RETAINED" | "SPECIAL" | null;
 }
 
 export interface PosContext {
@@ -48,11 +53,16 @@ export async function loadPosContext(ctx: TenantDbContext & { branchIds: string[
              p.package_price::text AS "packagePrice", p.units_per_package AS "unitsPerPackage",
              p.package_unit_code AS "packageUnitCode", p.allow_fractional AS "allowFractional",
              p.igv_affectation AS "igvAffectation",
-             (p.is_controlled OR coalesce(p.sale_condition::text, 'FREE') <> 'FREE') AS "requiresRx",
+             (p.is_controlled OR coalesce(p.sale_condition::text, '') IN ('PRESCRIPTION', 'RETAINED_PRESCRIPTION')) AS "requiresRx",
              p.is_service AS "isService", p.tracks_batches AS "tracksBatches",
              coalesce(sum(b.stock), 0)::text AS available,
              to_char(min(b.expiry_date), 'YYYY-MM-DD') AS "nearestExpiry",
-             greatest(p.withdrawal_days_meat, p.withdrawal_days_milk) AS "withdrawalDays"
+             greatest(p.withdrawal_days_meat, p.withdrawal_days_milk) AS "withdrawalDays",
+             p.withdrawal_days_meat AS "withdrawalMeat", p.withdrawal_days_milk AS "withdrawalMilk",
+             p.is_controlled AS "isControlled",
+             CASE WHEN p.is_controlled THEN 'SPECIAL'
+                  WHEN p.sale_condition::text = 'RETAINED_PRESCRIPTION' THEN 'RETAINED'
+                  WHEN p.sale_condition::text = 'PRESCRIPTION' THEN 'SIMPLE' END AS "rxKind"
         FROM products p
         LEFT JOIN product_batches b
                ON b.product_id = p.id AND b.branch_id = ${branch.id}::uuid AND b.stock > 0 AND b.deleted_at IS NULL

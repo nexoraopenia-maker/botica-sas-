@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   serverExternalPackages: ["xml-crypto", "node-forge", "pg"],
   experimental: {
+    authInterrupts: true, // forbidden(): respuesta 403 real para roles sin permiso
     serverActions: { bodySizeLimit: "15mb" },
     // Caché del router en el cliente: volver a una sección visitada hace <30 s es instantáneo
     // (las mutaciones llaman a router.refresh()/revalidatePath y la invalidan).

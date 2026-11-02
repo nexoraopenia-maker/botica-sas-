@@ -1,6 +1,7 @@
 import { requireTenant } from "@/lib/auth/session";
 import { withTenant } from "@/lib/db";
 import { EmptyState, PageHeader, Panel } from "../../_components/ui";
+import { WithdrawalCalculator } from "../_components/withdrawal-calculator";
 
 export default async function WithdrawalPage() {
   const ctx = await requireTenant({ permission: "inventory.read", module: "AGRO" });
@@ -12,6 +13,14 @@ export default async function WithdrawalPage() {
   return (
     <>
       <PageHeader title="Periodos de retiro" subtitle="Productos veterinarios con tiempo de espera antes del consumo de carne o leche" />
+      {rows.length > 0 && (
+        <>
+          <Panel title="Calculadora de retiro">
+            <WithdrawalCalculator products={rows.map((p) => ({ id: p.id, name: p.name, meat: p.withdrawal_days_meat, milk: p.withdrawal_days_milk }))} />
+          </Panel>
+          <div style={{ height: 16 }} />
+        </>
+      )}
       <Panel>
         {rows.length === 0 ? (
           <EmptyState icon="leaf" title="Sin productos con periodo de retiro" text="Al registrar productos con días de retiro, el punto de venta advertirá al productor en cada venta." />

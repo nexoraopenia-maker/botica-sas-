@@ -1,8 +1,8 @@
 import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import type { ModuleKey } from "@/generated/prisma/enums";
+import { forbidden, redirect } from "next/navigation";
+import type { BusinessLine, ModuleKey } from "@/generated/prisma/enums";
 import { describeDbError, platformDb } from "@/lib/db";
 import { supabaseServer } from "@/lib/supabase/server";
 import { DomainError } from "@/lib/result";
@@ -33,6 +33,8 @@ export interface TenantContext {
   roleKey: string;
   permissions: string[];
   modules: Set<ModuleKey>;
+  /** Rubros del negocio: adaptan el panel (botica, veterinaria, agro…) */
+  businessLines: BusinessLine[];
   impersonation: { id: string; readOnly: boolean; expiresAt: Date } | null;
 }
 
@@ -83,7 +85,10 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
       if (imp && identity.aal !== "aal2") {
         console.warn("[soporte] sesión de soporte ignorada: la sesión del superadmin no está verificada con MFA (aal2)");
       } else if (imp) {
-        const modules = await db.tenantModule.findMany({ where: { tenant_id: imp.tenant_id, enabled: true }, select: { module: true } });
+        const [modules, tenant] = await Promise.all([
+          db.tenantModule.findMany({ where: { tenant_id: imp.tenant_id, enabled: true }, select: { module: true } }),
+          db.tenant.findUnique({ where: { id: imp.tenant_id }, select: { business_lines: true } }),
+        ]);
         return {
           tenantId: imp.tenant_id,
           userId: identity.userId,
@@ -91,6 +96,7 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
           roleKey: "impersonator",
           permissions: imp.read_only ? ["documents.read", "inventory.read", "reports.read", "audit.read"] : ["*"],
           modules: new Set(modules.map((m) => m.module)),
+          businessLines: tenant?.business_lines ?? [],
           impersonation: { id: imp.id, readOnly: imp.read_only, expiresAt: imp.expires_at },
         };
       }
@@ -128,6 +134,7 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
     roleKey: membership.role.key,
     permissions: membership.role.permissions,
     modules: new Set(membership.tenant.modules.map((m) => m.module)),
+    businessLines: membership.tenant.business_lines,
     impersonation: null,
   };
 });
@@ -165,6 +172,19 @@ export async function requireTenant(opts: RequireTenantOptions = {}): Promise<Te
     throw new DomainError("FORBIDDEN_BRANCH", "No tiene acceso a esta sucursal.");
   }
   return ctx;
+}
+
+/**
+ * Guard para Server Components: un rol sin permiso recibe la respuesta 403 de Next (forbidden.tsx)
+ * en lugar de un error genérico. En Server Actions y Route Handlers se usa requireTenant.
+ */
+export async function requirePage(opts: RequireTenantOptions = {}): Promise<TenantContext> {
+  try {
+    return await requireTenant(opts);
+  } catch (err) {
+    if (err instanceof DomainError && (err.code === "FORBIDDEN" || err.code === "FORBIDDEN_BRANCH")) forbidden();
+    throw err;
+  }
 }
 
 export interface PlatformAdminContext {

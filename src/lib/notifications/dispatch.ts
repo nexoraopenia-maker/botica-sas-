@@ -2,6 +2,7 @@ import "server-only";
 import { platformDb } from "@/lib/db";
 import { renderTemplate } from "@/lib/notifications/templates";
 import { sendEmail, sendWhatsAppTemplate } from "@/lib/notifications/providers";
+import { loadTenantWhatsapp } from "@/lib/whatsapp/settings";
 import type { HandlerResult } from "@/lib/sunat/emit";
 
 /** Entrega una notificación (WhatsApp / email). Idempotente por estado. */
@@ -18,7 +19,7 @@ export async function dispatchNotification(notificationId: string, attempt: numb
   const msg = renderTemplate(n.template, n.payload as Record<string, unknown>);
   const res =
     n.channel === "WHATSAPP"
-      ? await sendWhatsAppTemplate(n.recipient, msg.waTemplate, msg.waParams, msg.text)
+      ? await sendWhatsAppTemplate(n.recipient, msg.waTemplate, msg.waParams, msg.text, await loadTenantWhatsapp(n.tenant_id))
       : await sendEmail(n.recipient, msg.subject, msg.text);
 
   await db.notification.update({

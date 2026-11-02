@@ -7,6 +7,8 @@ import type { PosProduct } from "@/lib/inventory/pos-catalog";
 import { Icon } from "@/app/app/_components/icons";
 import { CameraScanner } from "./camera-scanner";
 import { useHardwareScanner } from "./use-hardware-scanner";
+import { CashClosureModal } from "./cash-closure-modal";
+import { PrescriptionForm } from "@/app/app/pharmacy/_components/prescription-form";
 
 type SaleUnit = "UNIT" | "PACKAGE";
 type DocType = "BOLETA" | "FACTURA";
@@ -17,6 +19,8 @@ interface CartLine {
   product: PosProduct;
   unit: SaleUnit;
   qty: number;
+  /** Receta ya validada (obligatoria en productos con receta o controlados) */
+  prescriptionId?: string;
 }
 
 interface Receipt {
@@ -44,12 +48,19 @@ function unitPrice(p: PosProduct, unit: SaleUnit): number {
 const baseQty = (l: CartLine) => (l.unit === "PACKAGE" ? l.qty * l.product.unitsPerPackage : l.qty);
 const lineTotal = (l: CartLine) => Math.round(unitPrice(l.product, l.unit) * l.qty * 100) / 100;
 const isGravado = (p: PosProduct) => p.igvAffectation.startsWith("1");
+/** Texto del periodo de retiro para el aviso rojo al productor. */
+const withdrawalText = (p: PosProduct) => [
+  p.withdrawalMeat ? `carne ${p.withdrawalMeat} días` : null,
+  p.withdrawalMilk ? `leche ${p.withdrawalMilk} días` : null,
+].filter(Boolean).join(" · ");
 
-export function Pos({ products, branchId, branchName, series }: {
+export function Pos({ products, branchId, branchName, series, otcOnly = false, canDispenseRx = false }: {
   products: PosProduct[];
   branchId: string;
   branchName: string;
   series: { BOLETA: string | null; FACTURA: string | null };
+  otcOnly?: boolean;
+  canDispenseRx?: boolean;
 }) {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -66,6 +77,8 @@ export function Pos({ products, branchId, branchName, series }: {
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [scanning, setScanning] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [rxFor, setRxFor] = useState<{ product: PosProduct; unit: SaleUnit } | null>(null);
   const [pending, startTransition] = useTransition();
   const idempotencyKey = useRef<string>(crypto.randomUUID());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,17 +100,24 @@ export function Pos({ products, branchId, branchName, series }: {
 
   const results = useMemo(() => {
     const q = norm(query.trim());
-    if (!q) return products;
-    return products.filter((p) => norm(`${p.name} ${p.dci ?? ""} ${p.sku} ${p.barcode ?? ""}`).includes(q));
-  }, [products, query]);
+    const pool = otcOnly ? products.filter((p) => !p.requiresRx) : products;
+    if (!q) return pool;
+    return pool.filter((p) => norm(`${p.name} ${p.dci ?? ""} ${p.sku} ${p.barcode ?? ""}`).includes(q));
+  }, [products, query, otcOnly]);
 
   const available = (p: PosProduct) => Number(p.available);
   const inCartBase = (productId: string, except?: string) =>
     cart.filter((l) => l.product.id === productId && l.key !== except).reduce((a, l) => a + baseQty(l), 0);
 
-  function add(p: PosProduct, unit: SaleUnit = "UNIT") {
-    if (p.requiresRx) {
-      flash(`${p.name} requiere receta: dispénselo desde Farmacia`, "bad");
+  function add(p: PosProduct, unit: SaleUnit = "UNIT", prescriptionId?: string) {
+    // Receta: se exige antes de que el producto entre al carrito, una por producto
+    const rx = prescriptionId ?? cart.find((l) => l.product.id === p.id)?.prescriptionId;
+    if (p.requiresRx && !rx) {
+      if (!canDispenseRx) {
+        flash(`${p.name} requiere receta: solo puede dispensarlo el químico farmacéutico`, "bad");
+        return;
+      }
+      setRxFor({ product: p, unit });
       return;
     }
     const step = unit === "PACKAGE" ? p.unitsPerPackage : 1;
@@ -108,7 +128,7 @@ export function Pos({ products, branchId, branchName, series }: {
     setCart((prev) => {
       const existing = prev.find((l) => l.product.id === p.id && l.unit === unit);
       if (existing) return prev.map((l) => (l === existing ? { ...l, qty: l.qty + 1 } : l));
-      return [...prev, { key: `${p.id}:${unit}`, product: p, unit, qty: 1 }];
+      return [...prev, { key: `${p.id}:${unit}`, product: p, unit, qty: 1, prescriptionId: rx }];
     });
     flash(`+1 ${p.name}`);
   }
@@ -129,7 +149,7 @@ export function Pos({ products, branchId, branchName, series }: {
       const without = prev.filter((l) => l.key !== line.key);
       const merged = without.find((l) => l.product.id === line.product.id && l.unit === unit);
       if (merged) return without.map((l) => (l === merged ? { ...l, qty: l.qty + 1 } : l));
-      return [...without, { key: `${line.product.id}:${unit}`, product: line.product, unit, qty: 1 }];
+      return [...without, { key: `${line.product.id}:${unit}`, product: line.product, unit, qty: 1, prescriptionId: line.prescriptionId }];
     });
   }
 
@@ -139,7 +159,7 @@ export function Pos({ products, branchId, branchName, series }: {
     if (p) add(p);
     else flash(`Código ${raw} no encontrado`, "bad");
   }
-  useHardwareScanner(handleCode, !receipt && !scanning);
+  useHardwareScanner(handleCode, !receipt && !scanning && !rxFor && !closing);
 
   function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== "Enter") return;
@@ -160,6 +180,7 @@ export function Pos({ products, branchId, branchName, series }: {
   const change = method === "EFECTIVO" && received ? receivedN - total : null;
   const needsId = docType === "BOLETA" && total > 700;
   const currentSeries = series[docType];
+  const withdrawalLines = [...new Map(cart.filter((l) => l.product.withdrawalDays).map((l) => [l.product.id, l.product])).values()];
 
   function resetSale() {
     setCart([]);
@@ -199,7 +220,7 @@ export function Pos({ products, branchId, branchName, series }: {
         docType,
         series: currentSeries,
         customer,
-        items: cart.map((l) => ({ productId: l.product.id, saleUnit: l.unit, quantity: l.qty })),
+        items: cart.map((l) => ({ productId: l.product.id, saleUnit: l.unit, quantity: l.qty, prescriptionId: l.prescriptionId })),
         payments: [{ method, amount: total.toFixed(2) }],
         paymentTerms: "Contado" as const,
       };
@@ -252,9 +273,19 @@ export function Pos({ products, branchId, branchName, series }: {
               <button type="button" aria-label="Agregar uno" onClick={() => setQty(l, l.qty + 1)}>+</button>
             </div>
             <strong className="pos-line-total">{money(lineTotal(l))}</strong>
+            {l.prescriptionId && <span className="pos-rx-ok">Receta validada</span>}
           </div>
         ))}
       </div>
+
+      {withdrawalLines.length > 0 && (
+        <div className="pos-callout" role="alert">
+          <strong>Periodo de retiro: avise al productor</strong>
+          {withdrawalLines.map((p) => (
+            <p key={p.id}>{p.name}: esperar {withdrawalText(p)} antes del consumo humano.</p>
+          ))}
+        </div>
+      )}
 
       <div className="pos-checkout">
         <div className="pos-seg" role="radiogroup" aria-label="Tipo de comprobante">
@@ -328,7 +359,10 @@ export function Pos({ products, branchId, branchName, series }: {
             <span>Cámara</span>
           </button>
         </div>
-        <p className="pos-hint">Lector de códigos USB o Bluetooth: escanee directamente, sin hacer clic.</p>
+        <div className="pos-tools">
+          <p className="pos-hint">{otcOnly ? "Venta rápida: solo productos de venta libre." : "Lector de códigos USB o Bluetooth: escanee directamente, sin hacer clic."}</p>
+          <button type="button" className="app-btn" onClick={() => setClosing(true)}>Cierre de caja</button>
+        </div>
 
         <div className="pos-grid">
           {results.length === 0 && <p className="pos-empty">Sin resultados para «{query}».</p>}
@@ -336,7 +370,7 @@ export function Pos({ products, branchId, branchName, series }: {
             const stock = available(p);
             const out = p.tracksBatches && !p.isService && stock <= 0;
             return (
-              <div key={p.id} className={`pos-card${out || p.requiresRx ? " muted" : ""}`}>
+              <div key={p.id} className={`pos-card${out || (p.requiresRx && !canDispenseRx) ? " muted" : ""}`}>
                 <button type="button" className="pos-card-main" onClick={() => add(p)} disabled={out}
                   aria-label={`Agregar ${p.name}, ${money(Number(p.salePrice))}`}>
                   <span className="pos-card-name">{p.name}</span>
@@ -345,10 +379,11 @@ export function Pos({ products, branchId, branchName, series }: {
                   <span className="pos-card-meta">
                     {out ? <span className="app-pill red">Agotado</span> : p.isService ? <span className="app-pill gray">Servicio</span>
                       : <span className={`app-pill ${stock < 10 ? "amber" : "green"}`}>Stock {stock}</span>}
-                    {p.requiresRx && <span className="app-pill red">Receta</span>}
+                    {p.isControlled ? <span className="app-pill red">Controlado</span> : p.requiresRx && <span className="app-pill red">Receta</span>}
+                    {!!p.withdrawalDays && <span className="app-pill red">Retiro {p.withdrawalDays} d</span>}
                   </span>
                 </button>
-                {p.unitsPerPackage > 1 && !out && !p.requiresRx && (
+                {p.unitsPerPackage > 1 && !out && (
                   <button type="button" className="pos-pack" onClick={() => add(p, "PACKAGE")}>
                     + empaque x{p.unitsPerPackage} · {money(unitPrice(p, "PACKAGE"))}
                   </button>
@@ -372,6 +407,25 @@ export function Pos({ products, branchId, branchName, series }: {
 
       {toast && <div className={`pos-toast ${toast.tone}`} role="status">{toast.text}</div>}
       {scanning && <CameraScanner onDetected={handleCode} onClose={() => { setScanning(false); searchRef.current?.focus(); }} />}
+
+      {closing && <CashClosureModal branchId={branchId} onClose={() => setClosing(false)} />}
+
+      {rxFor && (
+        <div className="pos-overlay" role="dialog" aria-modal="true" aria-labelledby="rx-title">
+          <div className="pos-modal">
+            <h2 id="rx-title">{rxFor.product.isControlled ? "Producto controlado: datos del médico" : "Este producto requiere receta"}</h2>
+            <p className="app-muted">{rxFor.product.name}{rxFor.product.isControlled ? " · psicotrópico o estupefaciente: se registra en el libro de controlados." : ""}</p>
+            <PrescriptionForm
+              branchId={branchId}
+              kind={rxFor.product.rxKind ?? "SIMPLE"}
+              patientDefault={custName}
+              submitLabel="Validar y agregar a la venta"
+              onCancel={() => setRxFor(null)}
+              onSaved={(id) => { const { product, unit } = rxFor; setRxFor(null); add(product, unit, id); }}
+            />
+          </div>
+        </div>
+      )}
 
       {receipt && (
         <div className="pos-overlay" role="dialog" aria-modal="true" aria-labelledby="receipt-title">

@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { forbidden, redirect } from "next/navigation";
 import { Inter } from "next/font/google";
 import { getIdentity, getTenantContext } from "@/lib/auth/session";
 import { hasPermission, SYSTEM_ROLES } from "@/lib/auth/permissions";
-import { visibleNav } from "@/lib/modules/registry";
+import { PATH_HEADER, permissionForPath, visibleNav } from "@/lib/modules/registry";
 import { platformDb } from "@/lib/db";
 import { signOutAction } from "@/app/login/actions";
 import { exitSupportAction } from "@/app/superadmin/actions";
@@ -23,6 +24,10 @@ export default async function TenantLayout({ children }: { children: ReactNode }
     redirect(isAdmin ? "/superadmin" : "/login?error=no_tenant");
   }
 
+  // Aquí, antes del límite de loading.tsx, aún se puede responder 403: dentro de la página la respuesta ya se envió con 200
+  const needed = permissionForPath((await headers()).get(PATH_HEADER) ?? "");
+  if (needed && !hasPermission(ctx.permissions, needed)) forbidden();
+
   const db = platformDb();
   const [tenant, user, unread] = await Promise.all([
     db.tenant.findUniqueOrThrow({ where: { id: ctx.tenantId }, select: { legal_name: true, trade_name: true, sunat_env: true } }),
@@ -33,7 +38,7 @@ export default async function TenantLayout({ children }: { children: ReactNode }
   const displayName = user?.full_name ?? (ctx.impersonation ? "Soporte de plataforma" : "Usuario");
   const roleName = ctx.impersonation ? "Soporte" : (SYSTEM_ROLES[ctx.roleKey]?.name ?? ctx.roleKey);
   const initials = displayName.split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
-  const nav = visibleNav(ctx.modules, (p) => hasPermission(ctx.permissions, p));
+  const nav = visibleNav(ctx.modules, (p) => hasPermission(ctx.permissions, p), ctx.businessLines);
 
   return (
     <div className={`app-shell ${inter.className}`}>

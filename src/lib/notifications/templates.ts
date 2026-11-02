@@ -34,6 +34,13 @@ export function renderTemplate(template: string, p: Payload): RenderedMessage {
         waTemplate: "vacuna_hoy",
         waParams: [s(p.ownerName), s(p.petName), s(p.vaccine), s(p.clinic)],
       };
+    case "stock_expiring":
+      return {
+        subject: `Lote por vencer: ${s(p.product)}`,
+        text: `${s(p.clinic)}: el lote ${s(p.lot)} de ${s(p.product)} vence el ${fmtDate(p.expiryDate)} (${s(p.daysLeft)} día(s)). Stock actual: ${s(p.stock)}.`,
+        waTemplate: "alerta_caducidad",
+        waParams: [s(p.clinic), s(p.lot), s(p.product), fmtDate(p.expiryDate), s(p.stock)],
+      };
     default:
       throw new Error(`Plantilla desconocida: ${template}`);
   }

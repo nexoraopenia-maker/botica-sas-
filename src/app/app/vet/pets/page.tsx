@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireTenant } from "@/lib/auth/session";
 import { withTenant } from "@/lib/db";
 import { EmptyState, PageHeader, Panel } from "../../_components/ui";
@@ -13,20 +14,22 @@ export default async function PetsPage() {
     tx.pet.findMany({ where: { deleted_at: null }, include: { owner: true }, orderBy: { name: "asc" }, take: 500 }));
   return (
     <>
-      <PageHeader title="Pacientes" subtitle="Mascotas y animales atendidos, con su propietario" />
+      <PageHeader title="Pacientes" subtitle="Mascotas y animales atendidos, con su propietario"
+        actions={<Link href="/app/vet/records/new" className="app-btn primary">+ Nueva historia clínica</Link>} />
       <Panel>
         {pets.length === 0 ? (
           <EmptyState icon="paw" title="Sin pacientes" text="Registre pacientes para llevar su historia clínica y su carnet de vacunación con recordatorios automáticos." />
         ) : (
           <div className="app-table-wrap"><table className="app-table stack">
-            <thead><tr><th>Paciente</th><th>Especie / raza</th><th>Propietario</th><th>Contacto</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Paciente</th><th>Especie / raza</th><th>Propietario</th><th>Contacto</th><th>Estado</th><th>Cartilla</th></tr></thead>
             <tbody>{pets.map((p) => (
               <tr key={p.id}>
-                <td data-label="Paciente"><strong>{p.name}</strong>{p.microchip && <span className="app-sub">Chip {p.microchip}</span>}</td>
+                <td data-label="Paciente"><Link href={`/app/vet/pets/${p.id}`} className="app-link"><strong>{p.name}</strong></Link>{p.microchip && <span className="app-sub">Chip {p.microchip}</span>}</td>
                 <td data-label="Especie / raza">{SPECIES[p.species]}{p.breed ? ` · ${p.breed}` : ""}</td>
                 <td data-label="Propietario">{p.owner.full_name}</td>
                 <td data-label="Contacto">{p.owner.whatsapp ?? p.owner.phone ?? "—"}</td>
                 <td data-label="Estado">{p.deceased_at ? <span className="app-pill gray">Fallecido</span> : <span className="app-pill green">Activo</span>}</td>
+                <td data-label="Cartilla"><a className="app-link" href={`/app/vet/pets/${p.id}/cartilla`}>Cartilla QR (PDF)</a></td>
               </tr>
             ))}</tbody>
           </table></div>

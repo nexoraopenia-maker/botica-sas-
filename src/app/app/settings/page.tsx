@@ -1,4 +1,5 @@
-import { requireTenant } from "@/lib/auth/session";
+import Link from "next/link";
+import { requirePage } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/auth/permissions";
 import { withTenant } from "@/lib/db";
 import { ALERT_DEFAULTS, ALERT_KINDS } from "@/lib/settings/service";
@@ -10,7 +11,7 @@ export const metadata = { title: "Configuración" };
 export const maxDuration = 60; // la prueba en beta firma y espera la respuesta de SUNAT
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const ctx = await requireTenant({ permission: "settings.manage" });
+  const ctx = await requirePage({ permission: "settings.manage" });
   const { tab } = await searchParams;
   const canUsers = hasPermission(ctx.permissions, "users.manage");
   const data = await withTenant({ tenantId: ctx.tenantId, userId: ctx.userId }, async (tx) => {
@@ -53,7 +54,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
   return (
     <>
-      <PageHeader title="Configuración" subtitle="Sucursales, series, facturación SUNAT, usuarios y alertas de su negocio" />
+      <PageHeader title="Configuración" subtitle="Sucursales, series, facturación SUNAT, usuarios y alertas de su negocio"
+        actions={<Link href="/app/settings/whatsapp" className="app-btn">WhatsApp</Link>} />
       <SettingsView
         initialTab={tab === "series" || tab === "alerts" || tab === "sunat" || (tab === "users" && canUsers) ? tab : "branches"}
         branches={branches}

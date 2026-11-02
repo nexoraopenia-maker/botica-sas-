@@ -3,6 +3,7 @@ import { requireTenant } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/auth/permissions";
 import { withTenant } from "@/lib/db";
 import { limaNow } from "@/lib/time";
+import { quickActionsFor } from "@/lib/modules/registry";
 import { EmptyState, PageHeader, Panel, StatCard, soles } from "./_components/ui";
 import { Icon, type IconName } from "./_components/icons";
 
@@ -95,12 +96,25 @@ export default async function Dashboard() {
     { href: "/app/pharmacy/prescriptions", label: "Registrar receta", icon: "rx", show: ctx.modules.has("PHARMACY") && can("pharmacy.dispense_rx") },
   ];
 
+  const lineActions = quickActionsFor(ctx.businessLines, ctx.modules, can);
+
   return (
     <>
       <PageHeader
         title={`${greeting()}${userName ? `, ${userName}` : ""}`}
         subtitle={`Resumen de su negocio · ${new Date().toLocaleDateString("es-PE", { timeZone: "America/Lima", weekday: "long", day: "numeric", month: "long" })}`}
       />
+
+      {lineActions.length > 0 && (
+        <div className="app-line-actions">
+          {lineActions.map((a) => (
+            <Link key={a.href} href={a.href} className="app-line-action">
+              <span className="app-stat-icon blue"><Icon name={a.icon} size={20} /></span>
+              <span><strong>{a.label}</strong><small>{a.description}</small></span>
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="app-stats">
         <StatCard label="Ventas de hoy" value={soles(summary.sales_today)} hint={`${summary.docs_today} comprobantes`} icon="trend" tone="green" href="/app/documents" />

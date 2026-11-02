@@ -65,6 +65,35 @@ export async function storeSolCredentials(tx: Tx, tenantId: string, input: { use
   await tx.tenant.update({ where: { id: tenantId }, data: { sol_user: maskSolUser(data.user) } });
 }
 
+/** Guarda el token de WhatsApp cifrado (AES-256-GCM, mismo motor que SUNAT) y rota el anterior. Solo cliente de plataforma. */
+export async function storeWhatsappToken(tx: Tx, tenantId: string, token: string, actor: string): Promise<void> {
+  const payload = Buffer.from(JSON.stringify({ token }), "utf8");
+  const sealed = await seal(payload, secretAad(tenantId, "WHATSAPP_TOKEN"));
+  payload.fill(0);
+  await tx.tenantSecret.updateMany({
+    where: { tenant_id: tenantId, kind: "WHATSAPP_TOKEN", is_active: true },
+    data: { is_active: false, rotated_at: new Date() },
+  });
+  await tx.tenantSecret.create({
+    data: {
+      tenant_id: tenantId, kind: "WHATSAPP_TOKEN", ciphertext: bytes(sealed.ciphertext), iv: bytes(sealed.iv),
+      auth_tag: bytes(sealed.authTag), wrapped_dek: bytes(sealed.wrappedDek), kek_id: sealed.kekId,
+      fingerprint: `••••${token.slice(-4)}`, created_by: actor, // últimos 4 para reconocerlo; nunca el token
+    },
+  });
+}
+
+/** Descifra el token vigente de WhatsApp (solo servidor; nunca se envía al navegador). */
+export async function loadWhatsappToken(tenantId: string): Promise<string | null> {
+  const row = await platformDb().tenantSecret.findFirst({ where: { tenant_id: tenantId, kind: "WHATSAPP_TOKEN", is_active: true } });
+  if (!row) return null;
+  const plain = await open(
+    { ciphertext: Buffer.from(row.ciphertext), iv: Buffer.from(row.iv), authTag: Buffer.from(row.auth_tag), wrappedDek: Buffer.from(row.wrapped_dek), kekId: row.kek_id },
+    secretAad(tenantId, row.kind),
+  );
+  return (JSON.parse(plain.toString("utf8")) as { token: string }).token;
+}
+
 export async function storeCertificate(
   tx: Tx, tenantId: string, tenantRuc: string, pfx: Buffer, password: string, actor: string,
 ): Promise<CertificateCheck> {

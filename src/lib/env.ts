@@ -26,6 +26,8 @@ const serverSchema = z.object({
   META_WA_ACCESS_TOKEN: z.string().optional(),
   META_WA_APP_SECRET: z.string().optional(),
   META_WA_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_QR_BRIDGE_URL: z.url().optional(),
+  WHATSAPP_QR_BRIDGE_TOKEN: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_WHATSAPP_FROM: z.string().optional(),
