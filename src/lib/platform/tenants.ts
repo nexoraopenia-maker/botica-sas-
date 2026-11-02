@@ -20,6 +20,7 @@ const LINE_MODULES: Record<string, ModuleKey[]> = {
   VETERINARY: ["VETERINARY"],
   PHARMACY: ["PHARMACY"],
   RETAIL: [],
+  WORKSHOP: ["WORKSHOP"],
 };
 
 const DEFAULT_ALERTS = [

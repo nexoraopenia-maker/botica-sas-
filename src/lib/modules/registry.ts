@@ -1,10 +1,10 @@
 import type { BusinessLine, ModuleKey } from "@/generated/prisma/enums";
 import type { Permission } from "@/lib/auth/permissions";
 
-export type NavGroup = "Operación" | "Inventario" | "Clínica veterinaria" | "Agro" | "Farmacia" | "Administración";
+export type NavGroup = "Operación" | "Inventario" | "Clínica veterinaria" | "Agro" | "Farmacia" | "Taller" | "Administración";
 export type NavIcon =
   | "home" | "cart" | "receipt" | "box" | "clock" | "truck" | "sparkles" | "users" | "paw" | "syringe"
-  | "leaf" | "rx" | "book" | "chart" | "settings" | "bell";
+  | "leaf" | "rx" | "book" | "chart" | "settings" | "bell" | "wrench" | "coins";
 
 export interface NavItem {
   href: string;
@@ -33,6 +33,8 @@ export const NAV: readonly NavItem[] = [
   { href: "/app/agro/senasa", label: "Control SENASA", module: "AGRO", permission: "inventory.read", group: "Agro", icon: "book" },
   { href: "/app/pharmacy/prescriptions", label: "Recetas", module: "PHARMACY", permission: "pharmacy.dispense_rx", group: "Farmacia", icon: "rx" },
   { href: "/app/pharmacy/controlled", label: "Libro de controlados", module: "PHARMACY", permission: "pharmacy.controlled_log", group: "Farmacia", icon: "book" },
+  { href: "/app/services", label: "Órdenes de servicio", module: "WORKSHOP", permission: "services.manage", group: "Taller", icon: "wrench" },
+  { href: "/app/receivables", label: "Cuentas por cobrar", module: "WORKSHOP", permission: "receivables.manage", group: "Taller", icon: "coins" },
   { href: "/app/reports", label: "Reportes", module: "CORE", permission: "reports.read", group: "Administración", icon: "chart" },
   { href: "/app/settings", label: "Configuración", module: "CORE", permission: "settings.manage", group: "Administración", icon: "settings" },
   { href: "/app/settings/whatsapp", label: "WhatsApp", module: "CORE", permission: "settings.manage", group: "Administración", icon: "bell" },
@@ -44,6 +46,8 @@ export const ROUTE_MODULES: readonly { prefix: string; module: ModuleKey }[] = [
   { prefix: "/app/agro", module: "AGRO" },
   { prefix: "/app/pharmacy", module: "PHARMACY" },
   { prefix: "/app/purchases/ai", module: "AI_INVENTORY" },
+  { prefix: "/app/services", module: "WORKSHOP" },
+  { prefix: "/app/receivables", module: "WORKSHOP" },
 ];
 
 export function moduleForPath(pathname: string): ModuleKey | null {
@@ -56,6 +60,7 @@ const LINE_GROUP: Partial<Record<BusinessLine, NavGroup>> = {
   PHARMACY: "Farmacia",
   VETERINARY: "Clínica veterinaria",
   AGROVET: "Agro",
+  WORKSHOP: "Taller",
 };
 
 export function visibleNav(modules: ReadonlySet<ModuleKey>, can: (p: Permission) => boolean, lines: readonly BusinessLine[] = []): NavItem[] {
@@ -76,6 +81,11 @@ export interface QuickAction {
 
 /** Botones principales del inicio según el rubro del negocio. */
 export const QUICK_ACTIONS: Partial<Record<BusinessLine, readonly QuickAction[]>> = {
+  WORKSHOP: [
+    { href: "/app/services/new", label: "Recepcionar vehículo", description: "Nueva orden con fotos del estado de ingreso", icon: "wrench", module: "WORKSHOP", permission: "services.manage" },
+    { href: "/app/services", label: "Órdenes de servicio", description: "Avance de los trabajos en taller", icon: "book", module: "WORKSHOP", permission: "services.manage" },
+    { href: "/app/receivables", label: "Cuentas por cobrar", description: "Créditos vencidos y por vencer", icon: "coins", module: "WORKSHOP", permission: "receivables.manage" },
+  ],
   PHARMACY: [
     { href: "/app/pharmacy/prescriptions?nueva=controlada", label: "Validar receta controlada", description: "Registra la receta especial y al prescriptor", icon: "rx", module: "PHARMACY", permission: "pharmacy.dispense_rx" },
     { href: "/app/inventory/expiry", label: "Alertas de caducidad", description: "Lotes vencidos y por vencer", icon: "clock", module: "CORE", permission: "inventory.read" },

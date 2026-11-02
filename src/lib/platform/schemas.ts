@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { isValidRuc } from "@/lib/sunat/validation";
 
-export const MODULE_KEYS = ["CORE", "VETERINARY", "AGRO", "PHARMACY", "MAGISTRAL", "AI_INVENTORY", "WHATSAPP", "DISPATCH_GUIDES"] as const;
-export const BUSINESS_LINES = ["AGROVET", "VETERINARY", "PHARMACY", "RETAIL"] as const;
+export const MODULE_KEYS = ["CORE", "VETERINARY", "AGRO", "PHARMACY", "MAGISTRAL", "AI_INVENTORY", "WHATSAPP", "DISPATCH_GUIDES", "WORKSHOP"] as const;
+export const BUSINESS_LINES = ["AGROVET", "VETERINARY", "PHARMACY", "RETAIL", "WORKSHOP"] as const;
 
 const ruc = z.string().trim().refine(isValidRuc, "RUC inválido (dígito verificador)");
 const ubigeo = z.string().regex(/^\d{6}$/, "Ubigeo de 6 dígitos");

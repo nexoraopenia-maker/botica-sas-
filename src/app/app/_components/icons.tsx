@@ -2,6 +2,8 @@ import type { NavIcon } from "@/lib/modules/registry";
 
 /** Iconos de trazo (24×24, currentColor). Sin dependencias externas. */
 const PATHS: Record<NavIcon | "logout" | "menu" | "alert" | "trend" | "bell" | "building" | "plus" | "enter" | "shield" | "cpu", string> = {
+  wrench: "M14.7 6.3a4 4 0 0 1 5.4-1.1l-2.9 2.9 1.7 1.7 2.9-2.9a4 4 0 0 1-5.3 5.5L8.2 20.7a2 2 0 0 1-2.9-2.9l8.3-8.3a4 4 0 0 1 1.1-3.2z",
+  coins: "M9 14a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM15.7 9.2a6 6 0 1 1-6.5 9.7M9 5v6M7 7h3a1 1 0 0 1 0 2H8",
   home: "M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
   cart: "M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2M9 20.5h.01M17 20.5h.01",
   receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",

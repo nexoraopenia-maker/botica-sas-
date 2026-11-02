@@ -37,6 +37,7 @@ enum BusinessLine {
   VETERINARY
   PHARMACY
   RETAIL
+  WORKSHOP
 }
 
 enum ModuleKey {
@@ -48,6 +49,7 @@ enum ModuleKey {
   AI_INVENTORY
   WHATSAPP
   DISPATCH_GUIDES
+  WORKSHOP
 }
 
 enum PlatformRole {
@@ -85,6 +87,18 @@ enum SecretKind {
   SOL_CREDENTIALS
   CERTIFICATE_PFX
   WHATSAPP_TOKEN
+}
+
+enum ServiceOrderStatus {
+  RECEIVED
+  IN_PROGRESS
+  READY
+  DELIVERED
+}
+
+enum ServicePaymentType {
+  CASH
+  CREDIT
 }
 
 enum WhatsappProvider {
@@ -486,6 +500,7 @@ model Tenant {
   members        TenantUser[]
   roles          Role[]
   whatsapp       WhatsappSettings?
+  serviceOrders  ServiceOrder[]
   cashClosures   CashClosure[]
 
   @@index([status])
@@ -540,6 +555,67 @@ model WhatsappSettings {
   @@map("whatsapp_settings")
 }
 
+/// Orden de servicio de taller: recepción del vehículo o pieza, avance, cobro y evidencias.
+model ServiceOrder {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id        String             @db.Uuid
+  branch_id        String             @db.Uuid
+  customer_id      String             @db.Uuid
+  /// Correlativo por negocio (se muestra como OS-000123)
+  number           Int
+  idempotency_key  String             @db.Uuid
+  item_description String // vehículo o pieza recibida
+  plate            String?
+  mileage          Int?
+  problem          String
+  notes            String?
+  /// Rutas en el bucket privado tenant-files; se muestran con enlaces firmados
+  evidence_urls    String[]           @default([])
+  status           ServiceOrderStatus @default(RECEIVED)
+  payment_type     ServicePaymentType @default(CASH)
+  total            Decimal            @default(0) @db.Decimal(14, 2)
+  balance_due      Decimal            @default(0) @db.Decimal(14, 2)
+  due_date         DateTime?          @db.Date
+  /// Comprobante emitido por fuera de la orden (ej. F001-123)
+  invoice_number   String?
+  delivered_at     DateTime?          @db.Timestamptz(6)
+  created_by       String?            @db.Uuid
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime?          @db.Timestamptz(6)
+
+  tenant   Tenant                @relation(fields: [tenant_id], references: [id], map: "service_orders_tenant_fk")
+  branch   Branch                @relation(fields: [tenant_id, branch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "service_orders_branch_tenant_fk")
+  customer Customer              @relation(fields: [tenant_id, customer_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "service_orders_customer_tenant_fk")
+  payments ServiceOrderPayment[]
+
+  @@unique([tenant_id, id])
+  @@unique([tenant_id, number])
+  @@unique([tenant_id, idempotency_key])
+  @@index([tenant_id, status, created_at(sort: Desc)])
+  @@index([tenant_id, payment_type, due_date])
+  @@map("service_orders")
+}
+
+/// Cobro de una orden. Registro inmutable: el saldo solo baja con estos pagos.
+model ServiceOrderPayment {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String        @db.Uuid
+  order_id        String        @db.Uuid
+  idempotency_key String        @db.Uuid
+  method          PaymentMethod
+  amount          Decimal       @db.Decimal(14, 2)
+  reference       String?
+  created_by      String?       @db.Uuid
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+
+  order ServiceOrder @relation(fields: [tenant_id, order_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "service_order_payments_order_fk")
+
+  @@unique([tenant_id, idempotency_key])
+  @@index([tenant_id, order_id])
+  @@map("service_order_payments")
+}
+
 /// Cierre de caja (arqueo). Registro inmutable: el rol de runtime solo puede leer e insertar.
 model CashClosure {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -582,10 +658,11 @@ model Branch {
   updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
   deleted_at DateTime? @db.Timestamptz(6)
 
-  tenant    Tenant           @relation(fields: [tenant_id], references: [id])
-  series    DocumentSeries[]
-  batches   ProductBatch[]
-  documents Document[]
+  tenant        Tenant           @relation(fields: [tenant_id], references: [id])
+  series        DocumentSeries[]
+  batches       ProductBatch[]
+  documents     Document[]
+  serviceOrders ServiceOrder[]
 
   @@unique([tenant_id, sunat_code])
   @@unique([tenant_id, id])
@@ -664,6 +741,9 @@ model Customer {
   updated_at      DateTime        @default(now()) @updatedAt @db.Timestamptz(6)
   deleted_at      DateTime?       @db.Timestamptz(6)
 
+  serviceOrders ServiceOrder[]
+
+  @@unique([tenant_id, id])
   @@index([tenant_id, name])
   @@map("customers") // único (tenant, doc_type, doc_number) parcial en SQL
 }

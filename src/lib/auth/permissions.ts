@@ -18,6 +18,8 @@ export const PERMISSIONS = [
   "vet.vaccinate",
   "pharmacy.dispense_rx",
   "pharmacy.controlled_log",
+  "services.manage",
+  "receivables.manage",
   "users.manage",
   "settings.manage",
   "audit.read",
@@ -29,7 +31,7 @@ export const SYSTEM_ROLES: Record<string, { name: string; permissions: readonly 
   admin: { name: "Administrador", permissions: ["*"] },
   cashier: {
     name: "Cajero / Vendedor",
-    permissions: ["pos.sell", "documents.read", "customers.manage", "inventory.read"],
+    permissions: ["pos.sell", "documents.read", "customers.manage", "inventory.read", "services.manage"],
   },
   warehouse: {
     name: "Almacenero",
@@ -46,9 +48,13 @@ export const SYSTEM_ROLES: Record<string, { name: string; permissions: readonly 
       "inventory.adjust", "inventory.waste", "purchases.manage", "products.manage", "documents.read",
     ],
   },
+  mechanic: {
+    name: "Mecánico / Recepción",
+    permissions: ["services.manage", "customers.manage", "inventory.read"],
+  },
   accountant: {
     name: "Contador",
-    permissions: ["documents.read", "reports.read", "reports.accounting", "audit.read"],
+    permissions: ["documents.read", "reports.read", "reports.accounting", "audit.read", "receivables.manage"],
   },
 };
 
