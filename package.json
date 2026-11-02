@@ -49,12 +49,5 @@
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^5.0.4"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/engines",
-      "esbuild",
-      "prisma"
-    ]
   }
 }
