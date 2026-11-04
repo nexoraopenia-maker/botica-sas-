@@ -14,7 +14,7 @@ const caps = { canOverridePrice: false, canDispenseRx: false, pharmacyEnabled: f
 describe("Cierre de caja con devoluciones (PostgreSQL)", async () => {
   const { platformDb, runtimeDb } = await import("@/lib/db");
   const { createSale } = await import("@/lib/inventory/pos");
-  const { issueCreditNote } = await import("@/lib/sunat/credit-note");
+  const { issueCreditNote, loadCreditNoteContext } = await import("@/lib/sunat/credit-note");
   const cash = await import("@/lib/pos/cash-closure");
   const db = platformDb();
 
@@ -27,7 +27,7 @@ describe("Cierre de caja con devoluciones (PostgreSQL)", async () => {
     return r.documentId;
   };
   const note = (documentId: string, refundMethod?: "EFECTIVO" | "YAPE", c = ctx, key = randomUUID()) => issueCreditNote(c, {
-    idempotencyKey: key, documentId, series: "BC01", reasonCode: "07", reasonText: "Devolución del cliente", refundMethod,
+    idempotencyKey: key, documentId, series: "BC01", reasonCode: "06", reasonText: "Devolución del cliente", refundMethod,
   });
 
   beforeAll(async () => {
@@ -76,6 +76,93 @@ describe("Cierre de caja con devoluciones (PostgreSQL)", async () => {
     await note(await sale(1), "EFECTIVO");
     expect(Number((await cash.getCashSummary(other, B)).refunds.EFECTIVO)).toBe(0);
     expect(Number((await cash.getCashSummary(ctx, B)).refunds.EFECTIVO)).toBe(10);
+  });
+
+  it("solo admite los motivos implementados, y los totales no aceptan una nota previa", async () => {
+    const id = await sale(2);
+    await expect(issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "04" as never, reasonText: "Descuento global" })).rejects.toThrow();
+    await expect(issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "02", reasonText: "Error de RUC" })).rejects.toMatchObject({ code: "INVALID_REASON" });
+    await expect(issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "07", reasonText: "Sin líneas" })).rejects.toMatchObject({ code: "LINES_REQUIRED" });
+    const item = await db.documentItem.findFirstOrThrow({ where: { document_id: id } });
+    await issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "07", reasonText: "Devuelve una unidad", lines: [{ itemId: item.id, quantity: 1 }] });
+    await expect(note(id)).rejects.toMatchObject({ code: "ALREADY_CREDITED" });
+    await expect(issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "07", reasonText: "Fracción", lines: [{ itemId: item.id, quantity: 0.5 }] })).rejects.toMatchObject({ code: "INVALID_QTY" });
+    await expect(issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "07", reasonText: "De más", lines: [{ itemId: item.id, quantity: 2 }] })).rejects.toMatchObject({ code: "OVER_CREDIT" });
+    const ok = await issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "07", reasonText: "Devuelve la otra", lines: [{ itemId: item.id, quantity: 1 }] });
+    expect(ok.number).toBeGreaterThan(0);
+  });
+
+  it("una nota rechazada sigue contando: no se puede reponer dos veces", async () => {
+    const id = await sale(1);
+    const before = (await db.productBatch.aggregate({ where: { product_id: P }, _sum: { stock: true } }))._sum.stock!.toNumber();
+    const n = await note(id);
+    await db.document.update({ where: { id: n.documentId }, data: { status: "RECHAZADO" } });
+    const item = await db.documentItem.findFirstOrThrow({ where: { document_id: id } });
+    await expect(issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "07", reasonText: "Otra vez", lines: [{ itemId: item.id, quantity: 1 }] })).rejects.toMatchObject({ code: "OVER_CREDIT" });
+    expect((await db.productBatch.aggregate({ where: { product_id: P }, _sum: { stock: true } }))._sum.stock!.toNumber()).toBe(before + 1);
+    const ctxData = await loadCreditNoteContext(ctx, id);
+    expect(ctxData).toMatchObject({ hasRejectedNote: true, fullyCredited: true });
+    expect(ctxData!.blocker).toMatch(/por completo/);
+  });
+
+  it("no devuelve dinero de una venta a crédito ni emite sobre un comprobante no aceptado", async () => {
+    const r = await createSale(ctx, {
+      idempotencyKey: randomUUID(), branchId: B, docType: "BOLETA", series: "B001", customer: { docType: "NO_DOC", docNumber: "-", name: "CLIENTES VARIOS" },
+      items: [{ productId: P, saleUnit: "UNIT", quantity: 1 }], payments: [{ method: "EFECTIVO", amount: "10.00" }], paymentTerms: "Contado",
+    }, caps);
+    expect((await loadCreditNoteContext(ctx, r.documentId))!.blocker).toMatch(/aceptado/);
+    await expect(note(r.documentId)).rejects.toThrow(/aceptados/);
+    await db.document.update({ where: { id: r.documentId }, data: { status: "ACEPTADO", payment_terms: "Credito" } });
+    await expect(note(r.documentId, "EFECTIVO")).rejects.toMatchObject({ code: "REFUND_ON_CREDIT" });
+  });
+
+  it("el mismo producto en dos presentaciones se devuelve completo, y el contexto reparte lo acreditado", async () => {
+    await db.product.update({ where: { id: P }, data: { units_per_blister: 10, units_per_package: 100, blister_price: 90, package_price: 800 } });
+    const r = await createSale(ctx, {
+      idempotencyKey: randomUUID(), branchId: B, docType: "BOLETA", series: "B001", customer: { docType: "NO_DOC", docNumber: "-", name: "CLIENTES VARIOS" },
+      items: [{ productId: P, saleUnit: "BLISTER", quantity: 1 }, { productId: P, saleUnit: "UNIT", quantity: 2 }], payments: [{ method: "EFECTIVO", amount: "110.00" }], paymentTerms: "Contado",
+    }, caps);
+    await db.document.update({ where: { id: r.documentId }, data: { status: "ACEPTADO" } });
+    const items = await db.documentItem.findMany({ where: { document_id: r.documentId }, orderBy: { line_no: "asc" } });
+    await issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: r.documentId, series: "BC01", reasonCode: "07", reasonText: "Devuelve blíster", lines: [{ itemId: items[0]!.id, quantity: 1 }] });
+    const c = await loadCreditNoteContext(ctx, r.documentId);
+    expect(c!.lines.map((l) => l.remaining)).toEqual(["0", "2"]);
+    await issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: r.documentId, series: "BC01", reasonCode: "07", reasonText: "Devuelve unidades", lines: [{ itemId: items[1]!.id, quantity: 2 }] });
+    expect((await loadCreditNoteContext(ctx, r.documentId))!.fullyCredited).toBe(true);
+    await db.product.update({ where: { id: P }, data: { units_per_blister: 1, units_per_package: 1, blister_price: null, package_price: null } });
+  });
+
+  it("devolver un controlado repone el libro con su lote; el saldo sigue al stock", async () => {
+    const C = randomUUID();
+    await db.$executeRawUnsafe(`INSERT INTO products (id, tenant_id, sku, name, sale_price, is_controlled, sale_condition) VALUES ('${C}', '${T}', 'CTRL', 'Diazepam', 10, true, 'RETAINED_PRESCRIPTION')`);
+    const batch = (await db.$queryRawUnsafe<{ id: string }[]>(`INSERT INTO product_batches (tenant_id, branch_id, product_id, lot_code, expiry_date, stock, unit_cost) VALUES ('${T}', '${B}', '${C}', 'LC', '2099-01-01', 10, 1) RETURNING id`))[0]!.id;
+    await db.$executeRawUnsafe(`INSERT INTO controlled_substance_log (tenant_id, branch_id, product_id, batch_id, movement, quantity, balance, recorded_by) VALUES ('${T}', '${B}', '${C}', '${batch}', 'IN', 10, 0, '${U}')`);
+    const rx = randomUUID();
+    await db.$executeRawUnsafe(`INSERT INTO prescriptions (id, tenant_id, branch_id, kind, patient_name, prescriber_name, prescriber_cmp, issued_at, retained, validated_by) VALUES ('${rx}', '${T}', '${B}', 'SPECIAL', 'Luis', 'Dra', '4567', (now() AT TIME ZONE 'America/Lima')::date, true, '${U}')`);
+    const r = await createSale(ctx, {
+      idempotencyKey: randomUUID(), branchId: B, docType: "BOLETA", series: "B001", customer: { docType: "NO_DOC", docNumber: "-", name: "CLIENTES VARIOS" },
+      items: [{ productId: C, saleUnit: "UNIT", quantity: 3, prescriptionId: rx }], payments: [{ method: "EFECTIVO", amount: "30.00" }], paymentTerms: "Contado",
+    }, { ...caps, canDispenseRx: true, pharmacyEnabled: true });
+    await db.document.update({ where: { id: r.documentId }, data: { status: "ACEPTADO" } });
+    const n = await note(r.documentId, "EFECTIVO");
+    const log = await db.controlledSubstanceLog.findFirstOrThrow({ where: { document_id: n.documentId } });
+    expect(log).toMatchObject({ movement: "IN", batch_id: batch });
+    expect(log.quantity.toNumber()).toBe(3);
+    expect(log.balance.toNumber()).toBe(10);
+    const stock = await db.productBatch.findUniqueOrThrow({ where: { id: batch } });
+    expect(stock.stock.toNumber()).toBe(10);
+  });
+
+  it("descuenta la caja de quien emite aunque la venta sea de otra sucursal", async () => {
+    const CAJA = randomUUID();
+    await db.branch.create({ data: { id: CAJA, tenant_id: T, sunat_code: "0001", name: "Caja del cajero", address: "x", ubigeo: "150101" } });
+    const id = await sale(1);
+    const ventaAntes = Number((await cash.getCashSummary(ctx, B)).refunds.EFECTIVO);
+    const cajaAntes = Number((await cash.getCashSummary(ctx, CAJA)).refunds.EFECTIVO);
+    const r = await issueCreditNote({ ...ctx, branchIds: [CAJA] }, { idempotencyKey: randomUUID(), documentId: id, series: "BC01", reasonCode: "06", reasonText: "Devolución del cliente", refundMethod: "EFECTIVO" });
+    expect((await db.document.findUniqueOrThrow({ where: { id: r.documentId } })).branch_id).toBe(B);
+    expect(Number((await cash.getCashSummary(ctx, CAJA)).refunds.EFECTIVO)).toBe(cajaAntes + 10);
+    expect(Number((await cash.getCashSummary(ctx, B)).refunds.EFECTIVO)).toBe(ventaAntes);
   });
 
   it("repetir la misma nota no descuenta dos veces", async () => {

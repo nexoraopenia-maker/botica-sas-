@@ -29,7 +29,7 @@ export const SYSTEM_ROLES: Record<string, { name: string; permissions: readonly 
   admin: { name: "Administrador", permissions: ["*"] },
   cashier: {
     name: "Cajero / Vendedor",
-    permissions: ["pos.sell", "documents.read", "customers.manage", "inventory.read"],
+    permissions: ["pos.sell", "documents.read", "documents.credit_note", "customers.manage", "inventory.read"],
   },
   warehouse: {
     name: "Almacenero",

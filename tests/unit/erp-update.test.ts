@@ -87,6 +87,8 @@ describe("permiso por ruta", () => {
     ["/app/reports", "reports.read"],
     ["/app/reports?tab=ple&period=2026-10", "reports.accounting"],
     ["/app/customers/123", "customers.manage"],
+    ["/app/documents", "documents.read"],
+    ["/app/documents/abc/credit-note", "documents.credit_note"],
     ["/app", null],
     ["/app/settingsx", null],
   ])("%s → %s", (path, perm) => expect(permissionForPath(path)).toBe(perm));
@@ -98,5 +100,8 @@ describe("permisos del cajero", () => {
     expect(hasPermission(cashier, "settings.manage")).toBe(false);
     expect(hasPermission(cashier, "reports.accounting")).toBe(false);
     expect(hasPermission(cashier, "pos.sell")).toBe(true);
+  });
+  it("puede emitir notas de crédito", () => {
+    expect(hasPermission(cashier, "documents.credit_note")).toBe(true);
   });
 });

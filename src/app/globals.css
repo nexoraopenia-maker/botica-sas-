@@ -653,3 +653,14 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .digemid-input { width: 110px; padding: 6px 8px; font: inherit; border: 1px solid var(--a-line); border-radius: 8px; }
 .set-tabs a { padding: 9px 16px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--a-muted); text-decoration: none; white-space: nowrap; }
 .set-tabs a.on { background: #fff; color: var(--a-text); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
+
+/* ── Nota de crédito ── */
+.nc-reasons { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.nc-reason { display: flex; gap: 10px; padding: 12px; border: 1px solid var(--a-line); border-radius: 12px; background: #fff; color: var(--a-text); cursor: pointer; }
+.nc-reason.on { border-color: var(--a-blue); box-shadow: 0 0 0 3px rgba(31, 107, 255, .12); }
+.nc-reason small { display: block; margin-top: 3px; color: var(--a-muted); font-size: 12.5px; font-weight: 400; }
+.nc-total { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
+.svc-facts { margin: 0; padding: 14px 20px; }
+.svc-facts div { padding: 7px 0; }
+.svc-facts dt { color: var(--a-muted); font-size: 12.5px; }
+.svc-facts dd { margin: 2px 0 0; font-size: 14px; }

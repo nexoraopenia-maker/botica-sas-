@@ -95,6 +95,15 @@ export type DebitNoteReason = keyof typeof DEBIT_NOTE_REASONS;
 /** Motivos de NC que reponen stock (devolución) */
 export const RESTOCKING_CREDIT_REASONS: readonly CreditNoteReason[] = ["01", "06", "07"];
 
+/**
+ * Motivos que este sistema emite. El resto del catálogo 09 (descuentos, bonificaciones, ajustes de cuotas)
+ * exige datos que aquí no se calculan: una nota con ellos saldría mal ante SUNAT.
+ */
+export const SUPPORTED_CREDIT_REASONS = ["07", "06", "01", "02"] as const satisfies readonly CreditNoteReason[];
+export type SupportedCreditReason = (typeof SUPPORTED_CREDIT_REASONS)[number];
+/** Afectan a todo el comprobante: no admiten elegir líneas */
+export const FULL_CREDIT_REASONS: readonly CreditNoteReason[] = ["01", "02", "06"];
+
 /** Catálogo 03 — subset de unidades de medida usadas en los rubros */
 export const UNIT_CODES = {
   NIU: "Unidad (bienes)",

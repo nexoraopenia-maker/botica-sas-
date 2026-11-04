@@ -661,10 +661,11 @@ model Branch {
   updated_at                 DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
   deleted_at                 DateTime? @db.Timestamptz(6)
 
-  tenant    Tenant           @relation(fields: [tenant_id], references: [id])
-  series    DocumentSeries[]
-  batches   ProductBatch[]
-  documents Document[]
+  tenant      Tenant            @relation(fields: [tenant_id], references: [id])
+  series      DocumentSeries[]
+  batches     ProductBatch[]
+  documents   Document[]
+  cashRefunds DocumentPayment[]
 
   @@unique([tenant_id, sunat_code])
   @@unique([tenant_id, id])
@@ -1100,15 +1101,18 @@ model DocumentItemLot {
 }
 
 model DocumentPayment {
-  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id   String        @db.Uuid
-  document_id String        @db.Uuid
-  method      PaymentMethod
-  amount      Decimal       @db.Decimal(14, 2)
-  reference   String?
-  created_at  DateTime      @default(now()) @db.Timestamptz(6)
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id      String        @db.Uuid
+  document_id    String        @db.Uuid
+  method         PaymentMethod
+  amount         Decimal       @db.Decimal(14, 2)
+  reference      String?
+  /// Solo en devoluciones de notas de crédito: la caja de la que salió el dinero. Null = la sucursal del comprobante
+  cash_branch_id String?       @db.Uuid
+  created_at     DateTime      @default(now()) @db.Timestamptz(6)
 
-  document Document @relation(fields: [document_id], references: [id])
+  document   Document @relation(fields: [document_id], references: [id])
+  cashBranch Branch?  @relation(fields: [tenant_id, cash_branch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "document_payments_cash_branch_tenant_fk")
 
   @@map("document_payments")
 }

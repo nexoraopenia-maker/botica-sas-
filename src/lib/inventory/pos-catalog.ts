@@ -47,12 +47,17 @@ export interface PosContext {
 }
 
 /** Catálogo completo de la sucursal para búsqueda/escaneo instantáneo en el navegador (hasta 3000 productos). */
+/** La sucursal en la que opera la caja del usuario. */
+export function findActiveBranch(tx: Parameters<Parameters<typeof withTenant>[1]>[0], branchIds: string[]) {
+  return tx.branch.findFirst({
+    where: { is_active: true, deleted_at: null, ...(branchIds.length ? { id: { in: branchIds } } : {}) },
+    orderBy: { sunat_code: "asc" },
+  });
+}
+
 export async function loadPosContext(ctx: TenantDbContext & { branchIds: string[] }): Promise<PosContext | null> {
   return withTenant(ctx, async (tx) => {
-    const branch = await tx.branch.findFirst({
-      where: { is_active: true, deleted_at: null, ...(ctx.branchIds.length ? { id: { in: ctx.branchIds } } : {}) },
-      orderBy: { sunat_code: "asc" },
-    });
+    const branch = await findActiveBranch(tx, ctx.branchIds);
     if (!branch) return null;
     const series = await tx.documentSeries.findMany({
       where: { branch_id: branch.id, is_active: true, doc_type: { in: ["BOLETA", "FACTURA"] } },

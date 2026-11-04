@@ -162,7 +162,7 @@ describe("Módulos de botica (PostgreSQL)", async () => {
     const rest = (80 - Number(use)).toFixed(2);
     const r = await sale({}, [{ productId: P, saleUnit: "PACKAGE", quantity: 1 }], [{ method: "MONEDERO", amount: use }, { method: "EFECTIVO", amount: rest }]);
     await db.document.update({ where: { id: r.documentId }, data: { status: "ACEPTADO" } });
-    const note = await issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: r.documentId, series: "BC01", reasonCode: "07", reasonText: "Devolución total", refundMethod: "EFECTIVO" });
+    const note = await issueCreditNote(ctx, { idempotencyKey: randomUUID(), documentId: r.documentId, series: "BC01", reasonCode: "06", reasonText: "Devolución total", refundMethod: "EFECTIVO" });
     const paid = await db.documentPayment.findMany({ where: { document_id: note.documentId } });
     expect(paid).toHaveLength(1);
     expect(paid[0]!.amount.toFixed(2)).toBe(rest);

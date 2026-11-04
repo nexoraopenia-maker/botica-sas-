@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { withTenant } from "@/lib/db";
 import { DomainError } from "@/lib/result";
@@ -13,8 +14,15 @@ export async function issueCreditNoteAction(
   input: z.input<typeof creditNoteSchema>,
 ): Promise<ActionResult<{ documentId: string; series: string; number: number }>> {
   try {
+    const id = z.uuid().parse(input.documentId);
     const ctx = await requireTenant({ permission: "documents.credit_note", mutation: true });
-    const note = await issueCreditNote({ tenantId: ctx.tenantId, userId: ctx.userId }, input);
+    const db = { tenantId: ctx.tenantId, userId: ctx.userId };
+    const ref = await withTenant(db, (tx) => tx.document.findFirst({ where: { id }, select: { branch_id: true } }));
+    if (!ref) throw new DomainError("NOT_FOUND", "Comprobante no encontrado.");
+    await requireTenant({ permission: "documents.credit_note", mutation: true, branchId: ref.branch_id }); // un usuario de otra sucursal no devuelve aquí
+    const note = await issueCreditNote({ ...db, branchIds: ctx.branchIds }, input);
+    revalidatePath("/app/documents");
+    revalidatePath("/app/inventory");
     after(() => runOutboxEventNow(`document.issued:${note.documentId}`).catch((err) => console.error("[sunat] envío NC", err)));
     return ok(note);
   } catch (e) {

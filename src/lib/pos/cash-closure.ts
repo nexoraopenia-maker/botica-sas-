@@ -42,11 +42,11 @@ async function loadPayments(tx: Parameters<Parameters<typeof withTenant>[1]>[0],
      WHERE d.branch_id = ${branchId}::uuid AND d.created_by = ${userId}::uuid
        AND d.doc_type IN ('FACTURA', 'BOLETA') AND d.status <> 'ANULADO' AND d.deleted_at IS NULL
        AND d.created_at > ${from} AND d.created_at <= ${to}`;
-  // Notas de crédito con devolución emitidas por este cajero. Una rechazada por SUNAT también cuenta: el dinero ya salió de caja
+  // Notas de crédito con devolución emitidas por este cajero desde esta caja. Una rechazada por SUNAT también cuenta: el dinero ya salió
   const refundRows = await tx.$queryRaw<{ method: string; total: string }[]>`
     SELECT p.method::text AS method, sum(p.amount)::text AS total
       FROM document_payments p JOIN documents d ON d.id = p.document_id
-     WHERE d.branch_id = ${branchId}::uuid AND d.created_by = ${userId}::uuid
+     WHERE COALESCE(p.cash_branch_id, d.branch_id) = ${branchId}::uuid AND d.created_by = ${userId}::uuid
        AND d.doc_type = 'NOTA_CREDITO' AND d.status <> 'ANULADO' AND d.deleted_at IS NULL
        AND d.created_at > ${from} AND d.created_at <= ${to}
      GROUP BY p.method`;
