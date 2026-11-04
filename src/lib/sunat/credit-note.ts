@@ -18,6 +18,8 @@ export const creditNoteSchema = z.object({
   reasonText: z.string().trim().min(5).max(250),
   /** Vacío = nota por el total del comprobante */
   lines: z.array(z.object({ itemId: z.uuid(), quantity: z.union([z.number(), z.string()]).transform((v) => D(v)) })).default([]),
+  /** Cómo se devolvió el dinero al cliente. Vacío = sin devolución (ajuste, crédito a favor…): no afecta la caja */
+  refundMethod: z.enum(["EFECTIVO", "YAPE", "PLIN", "TARJETA", "TRANSFERENCIA"]).optional(),
 });
 
 /**
@@ -119,6 +121,9 @@ export async function issueCreditNote(ctx: TenantDbContext, raw: z.input<typeof 
         line_extension: l.totals.lineExtension, line_total: l.totals.lineTotal,
       })),
     });
+    if (input.refundMethod) {
+      await tx.documentPayment.create({ data: { tenant_id: ctx.tenantId, document_id: noteId, method: input.refundMethod, amount: round2(totals.total) } });
+    }
     await tx.outboxEvent.create({
       data: {
         tenant_id: ctx.tenantId, aggregate_type: "document", aggregate_id: noteId, event_type: "document.issued",
@@ -128,7 +133,7 @@ export async function issueCreditNote(ctx: TenantDbContext, raw: z.input<typeof 
     await audit(tx, {
       tenantId: ctx.tenantId, actorUserId: ctx.userId, actorKind: "tenant_user", action: "document.credit_note",
       entityType: "document", entityId: ref.id, reason: input.reasonText,
-      after: { note: `${input.series}-${number}`, reason: input.reasonCode, total: totals.total.toFixed(2) },
+      after: { note: `${input.series}-${number}`, reason: input.reasonCode, total: totals.total.toFixed(2), refund: input.refundMethod ?? null },
     });
     return { documentId: noteId, series: input.series, number };
   });

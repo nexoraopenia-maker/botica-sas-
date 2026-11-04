@@ -29,7 +29,9 @@ export function CashClosureModal({ branchId, onClose }: { branchId: string; onCl
     void cashSummaryAction(branchId).then((r) => (r.ok ? setSummary(r.data) : setError(r.error.message)));
   }, [branchId]);
 
-  const expected = (m: Method) => num(summary?.sales[m] ?? "0") + (m === "EFECTIVO" ? num(opening) : 0);
+  const refunded = (m: Method) => num(summary?.refunds[m] ?? "0");
+  const expected = (m: Method) => num(summary?.sales[m] ?? "0") - refunded(m) + (m === "EFECTIVO" ? num(opening) : 0);
+  const refundList = METHODS.filter((m) => refunded(m.key) > 0);
   const diff = (m: Method) => num(counted[m]) - expected(m);
   const totalDiff = Math.round(METHODS.reduce((a, m) => a + diff(m.key), 0) * 100) / 100;
   const complete = METHODS.every((m) => counted[m.key].trim() !== "");
@@ -76,6 +78,9 @@ export function CashClosureModal({ branchId, onClose }: { branchId: string; onCl
               ))}</tbody>
               <tfoot><tr><th colSpan={3}>Diferencia / Descuadre</th><th className={`num ${totalDiff !== 0 ? "closure-bad" : ""}`}>{complete ? money(totalDiff) : "—"}</th></tr></tfoot>
             </table></div>
+            {refundList.length > 0 && (
+              <p className="app-muted">Descontado por notas de crédito: {refundList.map((m) => `${m.label} ${money(refunded(m.key))}`).join(" · ")}</p>
+            )}
             {summary.others.length > 0 && (
               <p className="app-muted">No se arquean: {summary.others.map((o) => `${OTHER[o.method] ?? o.method} ${money(Number(o.total))}`).join(" · ")}</p>
             )}

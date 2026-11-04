@@ -636,3 +636,10 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
   .closure-table th, .closure-table td { padding: 8px 4px; font-size: 12.5px; letter-spacing: 0; }
   .closure-table input { width: 64px; padding: 6px; }
 }
+
+/* ── Controlados en inventario ── */
+.inv-controlled-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding: 12px 16px; border: 1px solid #f1d49a; border-left: 4px solid #b86e00; border-radius: 10px; background: #fff3dc; color: #7a4800; font-size: 14px; }
+.inv-controlled-note.bad { border-color: #f3b4ae; border-left-color: #b42318; background: #fde9e8; color: #8f1c13; }
+.inv-controlled-note p { margin: 4px 0 0; font-size: 13px; }
+.inv-controlled-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.app-table tr.inv-controlled td:first-child { box-shadow: inset 3px 0 0 #b42318; }

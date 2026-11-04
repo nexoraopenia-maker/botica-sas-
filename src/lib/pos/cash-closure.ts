@@ -14,6 +14,8 @@ export interface CashSummary {
   documents: number;
   /** Vendido por medio de pago arqueable (sin fondo inicial) */
   sales: Record<ClosureMethod, string>;
+  /** Devuelto a clientes con notas de crédito en este turno: se descuenta del esperado */
+  refunds: Record<ClosureMethod, string>;
   /** Transferencia, crédito…: informativo */
   others: { method: string; total: string }[];
 }
@@ -40,9 +42,18 @@ async function loadPayments(tx: Parameters<Parameters<typeof withTenant>[1]>[0],
      WHERE d.branch_id = ${branchId}::uuid AND d.created_by = ${userId}::uuid
        AND d.doc_type IN ('FACTURA', 'BOLETA') AND d.status <> 'ANULADO' AND d.deleted_at IS NULL
        AND d.created_at > ${from} AND d.created_at <= ${to}`;
+  // Notas de crédito con devolución emitidas por este cajero. Una rechazada por SUNAT también cuenta: el dinero ya salió de caja
+  const refundRows = await tx.$queryRaw<{ method: string; total: string }[]>`
+    SELECT p.method::text AS method, sum(p.amount)::text AS total
+      FROM document_payments p JOIN documents d ON d.id = p.document_id
+     WHERE d.branch_id = ${branchId}::uuid AND d.created_by = ${userId}::uuid
+       AND d.doc_type = 'NOTA_CREDITO' AND d.status <> 'ANULADO' AND d.deleted_at IS NULL
+       AND d.created_at > ${from} AND d.created_at <= ${to}
+     GROUP BY p.method`;
+  const refunds = Object.fromEntries(CLOSURE_METHODS.map((m) => [m, refundRows.find((r) => r.method === m)?.total ?? "0.00"])) as Record<ClosureMethod, string>;
   const sales = Object.fromEntries(CLOSURE_METHODS.map((m) => [m, rows.find((r) => r.method === m)?.total ?? "0.00"])) as Record<ClosureMethod, string>;
   const others = rows.filter((r) => !CLOSURE_METHODS.includes(r.method as ClosureMethod)).map((r) => ({ method: r.method, total: r.total }));
-  return { sales, others, documents: count?.c ?? 0 };
+  return { sales, refunds, others, documents: count?.c ?? 0 };
 }
 
 export async function getCashSummary(ctx: TenantDbContext, branchId: string): Promise<CashSummary> {
@@ -80,7 +91,7 @@ export async function closeCash(ctx: TenantDbContext, raw: z.input<typeof closeC
     const from = await periodStart(tx, i.branchId, ctx.userId);
     const to = new Date();
     const p = await loadPayments(tx, i.branchId, ctx.userId, from, to);
-    const result = computeClosure(i.opening, p.sales, i.counted);
+    const result = computeClosure(i.opening, p.sales, i.counted, p.refunds);
     if (!D(result.difference).isZero() && !i.notes) {
       throw new DomainError("NOTES_REQUIRED", `Hay un descuadre de S/ ${result.difference}: explique el motivo en las observaciones.`);
     }

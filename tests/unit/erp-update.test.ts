@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeClosure } from "@/lib/pos/cash-closure-calc";
+import { bookMismatch } from "@/lib/pharmacy/controlled-rules";
 import { withdrawalEnd, withdrawalStatus } from "@/lib/agro/withdrawal";
 import { permissionForPath, quickActionsFor, visibleNav } from "@/lib/modules/registry";
 import { hasPermission, SYSTEM_ROLES } from "@/lib/auth/permissions";
@@ -7,13 +8,43 @@ import { hasPermission, SYSTEM_ROLES } from "@/lib/auth/permissions";
 describe("arqueo de caja", () => {
   it("suma el fondo inicial solo al efectivo y calcula el descuadre", () => {
     const r = computeClosure("100", { EFECTIVO: "50.50", YAPE: "20", PLIN: "0", TARJETA: "10" }, { EFECTIVO: "145", YAPE: "20", PLIN: "0", TARJETA: "10" });
-    expect(r.lines[0]).toEqual({ method: "EFECTIVO", expected: "150.50", counted: "145.00", difference: "-5.50" });
+    expect(r.lines[0]).toEqual({ method: "EFECTIVO", expected: "150.50", counted: "145.00", difference: "-5.50", refunds: "0.00" });
     expect(r.lines[1]!.difference).toBe("0.00");
     expect(r.expectedTotal).toBe("180.50");
     expect(r.difference).toBe("-5.50");
   });
   it("sin descuadre la diferencia es cero aunque haya decimales", () => {
     expect(computeClosure(0, { EFECTIVO: "0.1", YAPE: "0.2", PLIN: 0, TARJETA: 0 }, { EFECTIVO: "0.1", YAPE: "0.2", PLIN: 0, TARJETA: 0 }).difference).toBe("0.00");
+  });
+});
+
+describe("devoluciones en el arqueo", () => {
+  const sales = { EFECTIVO: "100", YAPE: "50", PLIN: 0, TARJETA: 0 };
+  it("descuenta la nota de crédito en efectivo del esperado", () => {
+    const r = computeClosure("20", sales, { EFECTIVO: "90", YAPE: "50", PLIN: 0, TARJETA: 0 }, { EFECTIVO: "30" });
+    expect(r.lines[0]).toEqual({ method: "EFECTIVO", expected: "90.00", counted: "90.00", difference: "0.00", refunds: "30.00" });
+    expect(r.expectedTotal).toBe("140.00");
+    expect(r.difference).toBe("0.00");
+  });
+  it("cada medio descuenta solo lo suyo", () => {
+    const r = computeClosure(0, sales, { EFECTIVO: "100", YAPE: "40", PLIN: 0, TARJETA: 0 }, { YAPE: "10" });
+    expect(r.lines[0]!.expected).toBe("100.00");
+    expect(r.lines[1]!.expected).toBe("40.00");
+  });
+  it("sin dinero en el turno, una devolución deja el esperado en negativo: es lo que debe explicar el cajero", () => {
+    expect(computeClosure(0, { EFECTIVO: 0, YAPE: 0, PLIN: 0, TARJETA: 0 }, { EFECTIVO: 0, YAPE: 0, PLIN: 0, TARJETA: 0 }, { EFECTIVO: "25" }).difference).toBe("25.00");
+  });
+});
+
+describe("saldo del libro de controlados", () => {
+  it("avisa si no coincide con el stock o si no hay movimientos con stock", () => {
+    expect(bookMismatch("10.000", "10")).toBe(false);
+    expect(bookMismatch("10.000", "9.000")).toBe(true);
+    expect(bookMismatch("5.000", null)).toBe(true);
+    expect(bookMismatch("0", null)).toBe(false);
+  });
+  it("no aplica a productos no controlados, que no tienen saldo", () => {
+    expect(bookMismatch("5.000", undefined)).toBe(false);
   });
 });
 
