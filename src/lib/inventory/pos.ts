@@ -9,6 +9,7 @@ import { IGV_AFFECTATIONS, type IgvAffectation } from "@/lib/sunat/catalogs";
 import { computeLine, computeTotals, type LineTotals } from "@/lib/sunat/totals";
 import { validateDocumentRules } from "@/lib/sunat/validation";
 import { resolveSaleUnit } from "@/lib/pharmacy/fractioning";
+import { applySaleWallet, type SaleWalletResult } from "@/lib/loyalty/wallet";
 import { assertPrescriptionValid, requiresPrescription } from "@/lib/pharmacy/prescription-rules";
 
 // ───────────────────────────── Entrada ─────────────────────────────
@@ -17,7 +18,7 @@ const money = z.union([z.number(), z.string()]).transform((v) => D(v)).refine((d
 
 export const saleItemSchema = z.object({
   productId: z.uuid(),
-  saleUnit: z.enum(["UNIT", "PACKAGE"]).default("UNIT"),
+  saleUnit: z.enum(["UNIT", "BLISTER", "PACKAGE"]).default("UNIT"),
   quantity: z.union([z.number(), z.string()]).transform((v) => D(v)).refine((d) => d.gt(0), "Cantidad > 0"),
   /** Solo con permiso pos.discount: precio manual IGV incluido */
   unitPriceOverride: money.optional(),
@@ -45,7 +46,7 @@ export const createSaleSchema = z
     items: z.array(saleItemSchema).min(1).max(300),
     payments: z
       .array(z.object({
-        method: z.enum(["EFECTIVO", "YAPE", "PLIN", "TARJETA", "TRANSFERENCIA", "CREDITO"]),
+        method: z.enum(["EFECTIVO", "YAPE", "PLIN", "TARJETA", "TRANSFERENCIA", "CREDITO", "MONEDERO"]),
         amount: money,
         reference: z.string().max(60).optional(),
       }))
@@ -53,6 +54,8 @@ export const createSaleSchema = z
     paymentTerms: z.enum(["Contado", "Credito"]).default("Contado"),
     dueDate: z.iso.date().optional(),
     medicalRecordId: z.uuid().optional(),
+    /** Vendedor de la venta; por defecto, quien cobra */
+    sellerId: z.uuid().optional(),
   })
   .refine((v) => v.docType !== "FACTURA" || v.series.startsWith("F"), { message: "Serie de factura debe iniciar con F", path: ["series"] })
   .refine((v) => v.docType !== "BOLETA" || v.series.startsWith("B"), { message: "Serie de boleta debe iniciar con B", path: ["series"] });
@@ -68,6 +71,7 @@ export interface SaleResult {
   issueDate: string;
   replayed: boolean;
   warnings: string[];
+  wallet?: SaleWalletResult | null;
 }
 
 export interface SellerCapabilities {
@@ -198,8 +202,20 @@ export async function createSale(ctx: TenantDbContext, rawInput: CreateSaleInput
       // 5) Cliente (upsert sobre índice único parcial)
       const customerId = await upsertCustomer(tx, ctx.tenantId, input.customer);
 
-      // 6) Stock FEFO — orden determinista por product_id
+      // 5b) Vendedor: debe pertenecer al negocio; su % queda fijo en el comprobante
+      const sellerId = input.sellerId ?? ctx.userId;
+      if (input.sellerId && input.sellerId !== ctx.userId) {
+        const member = await tx.tenantUser.findFirst({ where: { user_id: input.sellerId, status: "ACTIVE", deleted_at: null }, select: { id: true } });
+        if (!member) throw new DomainError("INVALID_SELLER", "El vendedor seleccionado no pertenece a este negocio.");
+      }
+      const rate = await tx.sellerCommissionRate.findUnique({ where: { tenant_id_user_id: { tenant_id: ctx.tenantId, user_id: sellerId } }, select: { percent: true } });
+
+      // 5c) Monedero: se bloquea antes que el stock, siempre en el mismo orden
       const documentId = randomUUID();
+      const redeem = sum(input.payments.filter((p) => p.method === "MONEDERO").map((p) => p.amount));
+      const wallet = await applySaleWallet(tx, ctx, { customerId, documentId, total: totals.total, redeem: round2(redeem), paymentTerms: input.paymentTerms });
+
+      // 6) Stock FEFO — orden determinista por product_id
       const allocations = new Map<number, FefoAllocation[]>();
       const ordered = [...lines].sort((a, b) => a.product.id.localeCompare(b.product.id) || a.idx - b.idx);
       for (const l of ordered) {
@@ -244,6 +260,8 @@ export async function createSale(ctx: TenantDbContext, rawInput: CreateSaleInput
           total: totals.total,
           idempotency_key: input.idempotencyKey,
           created_by: ctx.userId,
+          seller_id: sellerId,
+          seller_commission_percent: rate?.percent ?? 0,
           status: "PENDIENTE",
         },
       });
@@ -310,6 +328,7 @@ export async function createSale(ctx: TenantDbContext, rawInput: CreateSaleInput
         issueDate: now.date,
         replayed: false,
         warnings,
+        wallet,
       };
     });
   } catch (err) {
@@ -345,7 +364,7 @@ function itemRow(
   id: string,
   lineNo: number,
   p: { id: string; name: string },
-  saleUnit: "UNIT" | "PACKAGE",
+  saleUnit: "UNIT" | "BLISTER" | "PACKAGE",
   unit: { baseQuantity: Decimal; unitCode: string },
   t: LineTotals,
   prescriptionId: string | undefined,
@@ -356,7 +375,7 @@ function itemRow(
     document_id: documentId,
     line_no: lineNo,
     product_id: p.id,
-    description: p.name,
+    description: saleUnit === "BLISTER" ? `${p.name} (blíster x${unit.baseQuantity.div(t.quantity).toString()})` : p.name,
     unit_code: unit.unitCode,
     sale_unit: saleUnit,
     quantity: t.quantity,

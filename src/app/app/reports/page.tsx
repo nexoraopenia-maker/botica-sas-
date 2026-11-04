@@ -14,7 +14,7 @@ import { PleTab } from "./_components/ple-tab";
 export const metadata = { title: "Reportes" };
 
 const PERIODS = [7, 30, 90] as const;
-const METHOD: Record<string, string> = { EFECTIVO: "Efectivo", YAPE: "Yape", PLIN: "Plin", TARJETA: "Tarjeta", TRANSFERENCIA: "Transferencia", CREDITO: "Crédito" };
+const METHOD: Record<string, string> = { EFECTIVO: "Efectivo", YAPE: "Yape", PLIN: "Plin", TARJETA: "Tarjeta", TRANSFERENCIA: "Transferencia", CREDITO: "Crédito", MONEDERO: "Monedero" };
 const money = (v: number) => `S/ ${v.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toLocaleString("es-PE", { maximumFractionDigits: 1 })}%`);
 const day = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
@@ -24,6 +24,7 @@ function ReportTabs({ ple }: { ple: boolean }) {
     <div className="set-tabs" role="tablist" aria-label="Sección de reportes" style={{ marginBottom: 0 }}>
       <Link href="/app/reports" role="tab" aria-selected={!ple} className={ple ? "" : "on"}>Ventas e inventario</Link>
       <Link href="/app/reports?tab=ple" role="tab" aria-selected={ple} className={ple ? "on" : ""}>Libros Electrónicos (PLE)</Link>
+      <Link href="/app/reports/commissions" role="tab" aria-selected={false}>Comisiones</Link>
     </div>
   );
 }

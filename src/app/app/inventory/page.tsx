@@ -8,7 +8,7 @@ import { bookMismatch } from "@/lib/pharmacy/controlled-rules";
 import { EmptyState, PageHeader, Panel, soles } from "../_components/ui";
 
 interface Row {
-  id: string; sku: string; name: string; dci: string | null; sale_price: string; units_per_package: number;
+  id: string; sku: string; name: string; dci: string | null; sale_price: string; units_per_package: number; units_per_blister: number;
   min_stock: string; is_controlled: boolean; controlled_list: string | null; book_balance: string | null; total_stock: string; withdrawal: number | null; available: string; expired: string; nearest_expiry: Date | null; batches: number;
 }
 
@@ -16,7 +16,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const { created, ver } = await searchParams;
   const ctx = await requireTenant({ permission: "inventory.read" });
   const rows = await withTenant({ tenantId: ctx.tenantId, userId: ctx.userId }, (tx) => tx.$queryRaw<Row[]>`
-    SELECT p.id, p.sku, p.name, p.dci, p.sale_price::text, p.units_per_package, p.min_stock::text, p.is_controlled, p.controlled_list,
+    SELECT p.id, p.sku, p.name, p.dci, p.sale_price::text, p.units_per_package, p.units_per_blister, p.min_stock::text, p.is_controlled, p.controlled_list,
            CASE WHEN p.is_controlled THEN (
              SELECT sum(x.balance)::text FROM (
                SELECT DISTINCT ON (l.branch_id) l.balance FROM controlled_substance_log l WHERE l.product_id = p.id ORDER BY l.branch_id, l.id DESC
@@ -71,7 +71,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                 <tr key={r.id} className={r.is_controlled ? "inv-controlled" : undefined}>
                   <td data-label="Producto"><strong>{r.name}</strong><span className="app-sub">{r.sku}{r.dci ? ` · ${r.dci}` : ""}</span></td>
                   <td data-label="Precio" className="num">{soles(r.sale_price)}</td>
-                  <td data-label="Stock vendible" className="num">{formatStock(D(r.available), r.units_per_package)}</td>
+                  <td data-label="Stock vendible" className="num">{formatStock(D(r.available), r.units_per_package, r.units_per_blister)}</td>
                   <td data-label="Lotes">{r.batches}</td>
                   <td data-label="Próx. vencimiento">{r.nearest_expiry?.toISOString().slice(0, 10) ?? "—"}</td>
                   <td data-label="Estado">

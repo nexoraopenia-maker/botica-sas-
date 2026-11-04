@@ -8,7 +8,7 @@ const METHODS = [
   { key: "EFECTIVO", label: "Efectivo" }, { key: "YAPE", label: "Yape" }, { key: "PLIN", label: "Plin" }, { key: "TARJETA", label: "Tarjetas" },
 ] as const;
 type Method = (typeof METHODS)[number]["key"];
-const OTHER: Record<string, string> = { TRANSFERENCIA: "Transferencia", CREDITO: "Crédito" };
+const OTHER: Record<string, string> = { TRANSFERENCIA: "Transferencia", CREDITO: "Crédito", MONEDERO: "Monedero" };
 
 const num = (v: string) => Number(v.replace(",", ".")) || 0;
 const money = (n: number) => `S/ ${n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

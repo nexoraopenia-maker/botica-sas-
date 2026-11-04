@@ -25,6 +25,10 @@ export const createProductSchema = z.object({
   isService: z.boolean().default(false),
   unitsPerPackage: z.number().int().min(1).max(10000).default(1),
   packagePrice: dec(0).optional(),
+  unitsPerBlister: z.number().int().min(1).max(10000).default(1),
+  blisterPrice: dec(0).optional(),
+  baseUnitName: optStr(40),
+  digemidProductCode: optStr(20),
   // Agro / Veterinaria
   senasaRegistration: optStr(60),
   withdrawalDaysMeat: z.number().int().min(0).max(365).optional(),
@@ -48,6 +52,8 @@ export const createProductSchema = z.object({
   }).optional(),
 }).refine((v) => !v.isControlled || v.saleCondition === "RETAINED_PRESCRIPTION", {
   message: "Un producto controlado requiere receta retenida", path: ["saleCondition"],
+}).refine((v) => v.unitsPerBlister === 1 || v.unitsPerPackage % v.unitsPerBlister === 0, {
+  message: "El empaque debe contener blísteres completos", path: ["unitsPerBlister"],
 }).refine((v) => v.unitsPerPackage === 1 || !!v.packagePrice, {
   message: "Indique el precio por empaque", path: ["packagePrice"],
 });
@@ -91,6 +97,8 @@ export async function createProduct(ctx: TenantDbContext, raw: z.input<typeof cr
           tenant_id: ctx.tenantId, category_id: categoryId, sku: i.sku, barcode: i.barcode ?? null, name: i.name,
           unit_code: i.isService ? "ZZ" : i.unitCode, igv_affectation: i.igvAffectation, sale_price: i.salePrice,
           package_price: i.unitsPerPackage > 1 ? (i.packagePrice ?? null) : null, units_per_package: i.unitsPerPackage,
+          units_per_blister: i.unitsPerBlister, blister_price: i.unitsPerBlister > 1 ? (i.blisterPrice ?? null) : null, base_unit_name: i.baseUnitName ?? null,
+          digemid_product_code: pharmacy ? (i.digemidProductCode ?? null) : null,
           package_unit_code: i.unitsPerPackage > 1 ? "BX" : null, allow_fractional: i.allowFractional, min_stock: i.minStock,
           is_service: i.isService, tracks_batches: !i.isService,
           senasa_registration: agro ? (i.senasaRegistration ?? null) : null,

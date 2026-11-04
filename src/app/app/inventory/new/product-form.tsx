@@ -31,7 +31,7 @@ export function ProductForm({ categories, branches, canAdjustStock, pharmacy, ag
   const [v, setV] = useState({
     name: "", sku: "", barcode: "", category: categories[0]?.id ?? "__new", newCategory: "", salePrice: "",
     unitCode: "NIU", igvAffectation: "10", minStock: "", isService: false, allowFractional: false,
-    sellByPackage: false, unitsPerPackage: "", packagePrice: "",
+    sellByPackage: false, unitsPerPackage: "", packagePrice: "", sellByBlister: false, unitsPerBlister: "", blisterPrice: "", baseUnitName: "", digemidProductCode: "",
     senasaRegistration: "", withdrawalDaysMeat: "", withdrawalDaysMilk: "",
     dci: "", concentration: "", pharmaceuticalForm: "", laboratory: "", digemidRegistration: "",
     pharmaceuticalKind: "", saleCondition: "FREE", isControlled: false,
@@ -62,6 +62,7 @@ export function ProductForm({ categories, branches, canAdjustStock, pharmacy, ag
         salePrice: v.salePrice, unitCode: v.unitCode as never, igvAffectation: v.igvAffectation as "10" | "20" | "30",
         minStock: v.minStock || 0, isService: v.isService, allowFractional: v.allowFractional,
         unitsPerPackage: v.sellByPackage ? Number(v.unitsPerPackage) || 1 : 1, packagePrice: v.sellByPackage ? v.packagePrice || undefined : undefined,
+        unitsPerBlister: v.sellByBlister ? Number(v.unitsPerBlister) || 1 : 1, blisterPrice: v.sellByBlister ? v.blisterPrice || undefined : undefined, baseUnitName: v.baseUnitName, digemidProductCode: v.digemidProductCode,
         senasaRegistration: v.senasaRegistration, withdrawalDaysMeat: intOrUndef(v.withdrawalDaysMeat), withdrawalDaysMilk: intOrUndef(v.withdrawalDaysMilk),
         dci: v.dci, concentration: v.concentration, pharmaceuticalForm: v.pharmaceuticalForm, laboratory: v.laboratory,
         digemidRegistration: v.digemidRegistration, pharmaceuticalKind: (v.pharmaceuticalKind || undefined) as "GENERIC" | "BRAND" | undefined,
@@ -156,6 +157,21 @@ export function ProductForm({ categories, branches, canAdjustStock, pharmacy, ag
             <label className="set-check"><input type="checkbox" checked={v.allowFractional} onChange={(e) => set("allowFractional", e.target.checked)} /> Se vende a granel (cantidades con decimales)</label>
             <label className="set-check"><input type="checkbox" checked={v.isService} onChange={(e) => set("isService", e.target.checked)} /> Es un servicio (sin stock: consulta, baño, aplicación)</label>
           </div>
+          {!v.isService && (
+            <div className="set-field wide pf-checks">
+              <label className="set-check"><input type="checkbox" checked={v.sellByBlister} onChange={(e) => set("sellByBlister", e.target.checked)} /> También se vende por blíster</label>
+            </div>
+          )}
+          {v.sellByBlister && (
+            <>
+              <label className="set-field"><span>Unidades por blíster *</span>
+                <input inputMode="numeric" value={v.unitsPerBlister} placeholder="Ej. 10" onChange={(e) => set("unitsPerBlister", e.target.value.replace(/\D/g, ""))} /><small>Si también vende por caja, la caja debe traer blísteres completos.</small></label>
+              <label className="set-field"><span>Precio por blíster (con IGV)</span>
+                <input inputMode="decimal" value={v.blisterPrice} placeholder="Si lo deja vacío: unidades × precio" onChange={(e) => set("blisterPrice", e.target.value)} /></label>
+              <label className="set-field"><span>Nombre de la unidad base</span>
+                <input value={v.baseUnitName} placeholder="Pastilla, tableta, ampolla…" onChange={(e) => set("baseUnitName", e.target.value)} /></label>
+            </>
+          )}
           {v.sellByPackage && (
             <>
               <label className="set-field"><span>Unidades por empaque *</span>
@@ -186,6 +202,7 @@ export function ProductForm({ categories, branches, canAdjustStock, pharmacy, ag
             <label className="set-field"><span>Concentración</span><input value={v.concentration} onChange={(e) => set("concentration", e.target.value)} placeholder="500 mg" /></label>
             <label className="set-field"><span>Forma farmacéutica</span><input value={v.pharmaceuticalForm} onChange={(e) => set("pharmaceuticalForm", e.target.value)} placeholder="Tableta" /></label>
             <label className="set-field"><span>Laboratorio</span><input value={v.laboratory} onChange={(e) => set("laboratory", e.target.value)} /></label>
+            <label className="set-field"><span>Código Observatorio DIGEMID</span><input inputMode="numeric" value={v.digemidProductCode} onChange={(e) => set("digemidProductCode", e.target.value)} /></label>
             <label className="set-field"><span>Registro sanitario DIGEMID</span><input value={v.digemidRegistration} onChange={(e) => set("digemidRegistration", e.target.value)} /></label>
             <label className="set-field"><span>Tipo</span>
               <select value={v.pharmaceuticalKind} onChange={(e) => set("pharmaceuticalKind", e.target.value)}>

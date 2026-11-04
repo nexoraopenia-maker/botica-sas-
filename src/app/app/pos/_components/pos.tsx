@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createSaleAction } from "@/app/app/pos/actions";
+import { createSaleAction, walletBalanceAction } from "@/app/app/pos/actions";
+import { expiryWarning } from "@/lib/inventory/expiry-rules";
 import type { PosProduct } from "@/lib/inventory/pos-catalog";
 import { Icon } from "@/app/app/_components/icons";
 import { CameraScanner } from "./camera-scanner";
@@ -10,7 +11,7 @@ import { useHardwareScanner } from "./use-hardware-scanner";
 import { CashClosureModal } from "./cash-closure-modal";
 import { PrescriptionForm } from "@/app/app/pharmacy/_components/prescription-form";
 
-type SaleUnit = "UNIT" | "PACKAGE";
+type SaleUnit = "UNIT" | "BLISTER" | "PACKAGE";
 type DocType = "BOLETA" | "FACTURA";
 type Method = "EFECTIVO" | "YAPE" | "PLIN" | "TARJETA" | "TRANSFERENCIA";
 
@@ -28,6 +29,7 @@ interface Receipt {
   total: string;
   change: number | null;
   warnings: string[];
+  wallet: { redeemed: string; earned: string; balance: string } | null;
 }
 
 const METHODS: { key: Method; label: string }[] = [
@@ -42,10 +44,21 @@ const money = (n: number) => `S/ ${n.toLocaleString("es-PE", { minimumFractionDi
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 function unitPrice(p: PosProduct, unit: SaleUnit): number {
+  if (unit === "BLISTER") return p.blisterPrice ? Number(p.blisterPrice) : Number(p.salePrice) * p.unitsPerBlister;
   if (unit === "PACKAGE") return p.packagePrice ? Number(p.packagePrice) : Number(p.salePrice) * p.unitsPerPackage;
   return Number(p.salePrice);
 }
-const baseQty = (l: CartLine) => (l.unit === "PACKAGE" ? l.qty * l.product.unitsPerPackage : l.qty);
+/** Unidades base que descuenta una unidad de venta: el kardex siempre va en unidad base. */
+const factor = (p: PosProduct, unit: SaleUnit) => (unit === "PACKAGE" ? p.unitsPerPackage : unit === "BLISTER" ? p.unitsPerBlister : 1);
+const baseQty = (l: CartLine) => l.qty * factor(l.product, l.unit);
+/** Presentaciones en que se vende el producto, de menor a mayor. */
+const presentations = (p: PosProduct): SaleUnit[] => [
+  "UNIT",
+  ...(p.unitsPerBlister > 1 ? (["BLISTER"] as const) : []),
+  ...(p.unitsPerPackage > 1 ? (["PACKAGE"] as const) : []),
+];
+const unitLabel = (p: PosProduct, unit: SaleUnit) =>
+  unit === "PACKAGE" ? `caja x${p.unitsPerPackage}` : unit === "BLISTER" ? `blíster x${p.unitsPerBlister}` : (p.baseUnitName?.toLowerCase() ?? "unidad");
 const lineTotal = (l: CartLine) => Math.round(unitPrice(l.product, l.unit) * l.qty * 100) / 100;
 const isGravado = (p: PosProduct) => p.igvAffectation.startsWith("1");
 /** Texto del periodo de retiro para el aviso rojo al productor. */
@@ -54,13 +67,17 @@ const withdrawalText = (p: PosProduct) => [
   p.withdrawalMilk ? `leche ${p.withdrawalMilk} días` : null,
 ].filter(Boolean).join(" · ");
 
-export function Pos({ products, branchId, branchName, series, otcOnly = false, canDispenseRx = false }: {
+export function Pos({ products, branchId, branchName, series, otcOnly = false, canDispenseRx = false, today, sellers, currentUserId, loyaltyEnabled }: {
   products: PosProduct[];
   branchId: string;
   branchName: string;
   series: { BOLETA: string | null; FACTURA: string | null };
   otcOnly?: boolean;
   canDispenseRx?: boolean;
+  today: string;
+  sellers: { id: string; name: string }[];
+  currentUserId: string;
+  loyaltyEnabled: boolean;
 }) {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -78,6 +95,9 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
   const [scanning, setScanning] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [sellerId, setSellerId] = useState(currentUserId);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [walletUse, setWalletUse] = useState("");
   const [rxFor, setRxFor] = useState<{ product: PosProduct; unit: SaleUnit } | null>(null);
   const [pending, startTransition] = useTransition();
   const idempotencyKey = useRef<string>(crypto.randomUUID());
@@ -120,7 +140,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
       setRxFor({ product: p, unit });
       return;
     }
-    const step = unit === "PACKAGE" ? p.unitsPerPackage : 1;
+    const step = factor(p, unit);
     if (p.tracksBatches && !p.isService && inCartBase(p.id) + step > available(p)) {
       flash(`Sin stock suficiente de ${p.name}`, "bad");
       return;
@@ -130,12 +150,12 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
       if (existing) return prev.map((l) => (l === existing ? { ...l, qty: l.qty + 1 } : l));
       return [...prev, { key: `${p.id}:${unit}`, product: p, unit, qty: 1, prescriptionId: rx }];
     });
-    flash(`+1 ${p.name}`);
+    flash(`+1 ${unit === "UNIT" ? "" : `${unitLabel(p, unit)} · `}${p.name}`);
   }
 
   function setQty(line: CartLine, qty: number) {
     if (qty <= 0) return setCart((prev) => prev.filter((l) => l.key !== line.key));
-    const base = line.unit === "PACKAGE" ? qty * line.product.unitsPerPackage : qty;
+    const base = qty * factor(line.product, line.unit);
     if (line.product.tracksBatches && !line.product.isService && inCartBase(line.product.id, line.key) + base > available(line.product)) {
       flash("No hay más stock disponible", "bad");
       return;
@@ -143,13 +163,19 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
     setCart((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty } : l)));
   }
 
-  function toggleUnit(line: CartLine) {
-    const unit: SaleUnit = line.unit === "UNIT" ? "PACKAGE" : "UNIT";
+  /** Cambia la presentación de la línea (pastilla → blíster → caja), si hay stock para ella. */
+  function setLineUnit(line: CartLine, unit: SaleUnit) {
+    if (unit === line.unit) return;
+    const p = line.product;
+    if (p.tracksBatches && !p.isService && inCartBase(p.id, line.key) + factor(p, unit) > available(p)) {
+      flash("No hay stock suficiente para esa presentación", "bad");
+      return;
+    }
     setCart((prev) => {
       const without = prev.filter((l) => l.key !== line.key);
-      const merged = without.find((l) => l.product.id === line.product.id && l.unit === unit);
+      const merged = without.find((l) => l.product.id === p.id && l.unit === unit);
       if (merged) return without.map((l) => (l === merged ? { ...l, qty: l.qty + 1 } : l));
-      return [...without, { key: `${line.product.id}:${unit}`, product: line.product, unit, qty: 1, prescriptionId: line.prescriptionId }];
+      return [...without, { key: `${p.id}:${unit}`, product: p, unit, qty: 1, prescriptionId: line.prescriptionId }];
     });
   }
 
@@ -177,9 +203,23 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
   const igv = cart.reduce((a, l) => a + (isGravado(l.product) ? lineTotal(l) - lineTotal(l) / 1.18 : 0), 0);
   const items = cart.reduce((a, l) => a + l.qty, 0);
   const receivedN = Number(received.replace(",", "."));
-  const change = method === "EFECTIVO" && received ? receivedN - total : null;
+  const walletAmount = Math.min(Math.max(Number(walletUse.replace(",", ".")) || 0, 0), walletBalance ?? 0, total);
+  const toPay = Math.round((total - walletAmount) * 100) / 100;
+  const change = method === "EFECTIVO" && received ? receivedN - toPay : null;
   const needsId = docType === "BOLETA" && total > 700;
   const currentSeries = series[docType];
+  const expiringLines = [...new Map(cart.map((l) => [l.product.id, l.product])).values()]
+    .map((p) => ({ p, warn: expiryWarning(p.nearestExpiry, today) })).filter((x) => x.warn);
+  // Saldo del monedero al identificar al cliente
+  useEffect(() => {
+    setWalletBalance(null);
+    setWalletUse("");
+    const type = docType === "FACTURA" ? "RUC" : "DNI";
+    if (!loyaltyEnabled || custDoc.length !== (type === "RUC" ? 11 : 8)) return;
+    let stale = false;
+    void walletBalanceAction(type, custDoc).then((r) => { if (!stale && r.ok && r.data.balance !== null) setWalletBalance(Number(r.data.balance)); });
+    return () => { stale = true; };
+  }, [custDoc, docType, loyaltyEnabled]);
   const withdrawalLines = [...new Map(cart.filter((l) => l.product.withdrawalDays).map((l) => [l.product.id, l.product])).values()];
 
   function resetSale() {
@@ -189,6 +229,8 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
     setCustAddress("");
     setReceived("");
     setMethod("EFECTIVO");
+    setWalletBalance(null);
+    setWalletUse("");
     setError(null);
     setReceipt(null);
     setSheet(false);
@@ -221,7 +263,11 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
         series: currentSeries,
         customer,
         items: cart.map((l) => ({ productId: l.product.id, saleUnit: l.unit, quantity: l.qty, prescriptionId: l.prescriptionId })),
-        payments: [{ method, amount: total.toFixed(2) }],
+        sellerId,
+        payments: [
+          ...(walletAmount > 0 ? [{ method: "MONEDERO" as const, amount: walletAmount.toFixed(2) }] : []),
+          ...(toPay > 0 ? [{ method, amount: toPay.toFixed(2) }] : []),
+        ],
         paymentTerms: "Contado" as const,
       };
       let res = await createSaleAction(input);
@@ -236,6 +282,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
         total: res.data.total,
         change: change !== null && change > 0 ? change : null,
         warnings: res.data.warnings,
+        wallet: res.data.wallet ?? null,
       });
       setSheet(false);
       router.refresh(); // stock actualizado
@@ -256,11 +303,11 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
             <div className="pos-line-info">
               <strong>{l.product.name}</strong>
               <span>
-                {money(unitPrice(l.product, l.unit))} / {l.unit === "PACKAGE" ? `empaque x${l.product.unitsPerPackage}` : "unidad"}
-                {l.product.unitsPerPackage > 1 && (
-                  <button type="button" className="pos-link" onClick={() => toggleUnit(l)}>
-                    {l.unit === "UNIT" ? "· vender por empaque" : "· vender por unidad"}
-                  </button>
+                {money(unitPrice(l.product, l.unit))} / {unitLabel(l.product, l.unit)}
+                {presentations(l.product).length > 1 && (
+                  <select className="pos-unit" aria-label={`Presentación de ${l.product.name}`} value={l.unit} onChange={(e) => setLineUnit(l, e.target.value as SaleUnit)}>
+                    {presentations(l.product).map((u) => <option key={u} value={u}>{unitLabel(l.product, u)}</option>)}
+                  </select>
                 )}
               </span>
             </div>
@@ -277,6 +324,13 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
           </div>
         ))}
       </div>
+
+      {expiringLines.length > 0 && (
+        <div className="pos-callout amber" role="status">
+          <strong>Lote próximo a vencer</strong>
+          {expiringLines.map(({ p, warn }) => <p key={p.id}>{p.name}: {warn!.label.toLowerCase()} ({p.nearestExpiry}). Verifique el lote y avise al cliente.</p>)}
+        </div>
+      )}
 
       {withdrawalLines.length > 0 && (
         <div className="pos-callout" role="alert">
@@ -312,6 +366,27 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
           )}
         </div>
 
+        {walletBalance !== null && (
+          <div className="pos-wallet">
+            <span>Monedero: <strong>{money(walletBalance)}</strong></span>
+            {walletBalance > 0 && (
+              <>
+                <input inputMode="decimal" aria-label="Monto a pagar con monedero" placeholder="Usar" value={walletUse} onChange={(e) => setWalletUse(e.target.value)} />
+                <button type="button" className="pos-link" onClick={() => setWalletUse(Math.min(walletBalance, total).toFixed(2))}>Usar todo</button>
+              </>
+            )}
+          </div>
+        )}
+
+        {sellers.length > 1 && (
+          <label className="pos-seller"><span>Vendedor</span>
+            <select value={sellerId} onChange={(e) => setSellerId(e.target.value)}>
+              {!sellers.some((s) => s.id === currentUserId) && <option value={currentUserId}>Usuario actual</option>}
+              {sellers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+        )}
+
         <div className="pos-methods" role="radiogroup" aria-label="Medio de pago">
           {METHODS.map((m) => (
             <button key={m.key} type="button" role="radio" aria-checked={method === m.key} className={method === m.key ? "on" : ""}
@@ -330,12 +405,13 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
         <dl className="pos-totals">
           <div><dt>Op. gravadas + exoneradas</dt><dd>{money(total - igv)}</dd></div>
           <div><dt>IGV (18%)</dt><dd>{money(igv)}</dd></div>
-          <div className="grand"><dt>Total</dt><dd>{money(total)}</dd></div>
+          {walletAmount > 0 && <div><dt>Pagado con monedero</dt><dd>− {money(walletAmount)}</dd></div>}
+          <div className="grand"><dt>{walletAmount > 0 ? "A cobrar" : "Total"}</dt><dd>{money(toPay)}</dd></div>
         </dl>
 
         {error && <p className="pos-error" role="alert">{error}</p>}
         <button type="button" className="pos-pay" disabled={pending || cart.length === 0} onClick={checkout}>
-          {pending ? "Emitiendo…" : `Cobrar ${money(total)}`}
+          {pending ? "Emitiendo…" : `Cobrar ${money(toPay)}`}
         </button>
         <p className="pos-series">{docType === "BOLETA" ? "Boleta" : "Factura"} serie {currentSeries ?? "—"} · {branchName}</p>
       </div>
@@ -369,6 +445,8 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
           {results.map((p) => {
             const stock = available(p);
             const out = p.tracksBatches && !p.isService && stock <= 0;
+            const expiredOnly = out && Number(p.expiredStock) > 0;
+            const warn = out ? null : expiryWarning(p.nearestExpiry, today);
             return (
               <div key={p.id} className={`pos-card${out || (p.requiresRx && !canDispenseRx) ? " muted" : ""}`}>
                 <button type="button" className="pos-card-main" onClick={() => add(p)} disabled={out}
@@ -377,17 +455,18 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
                   {p.dci && <span className="pos-card-sub">{p.dci}</span>}
                   <span className="pos-card-price">{money(Number(p.salePrice))}</span>
                   <span className="pos-card-meta">
-                    {out ? <span className="app-pill red">Agotado</span> : p.isService ? <span className="app-pill gray">Servicio</span>
+                    {expiredOnly ? <span className="app-pill red">Lote vencido: no se vende</span> : out ? <span className="app-pill red">Agotado</span> : p.isService ? <span className="app-pill gray">Servicio</span>
                       : <span className={`app-pill ${stock < 10 ? "amber" : "green"}`}>Stock {stock}</span>}
                     {p.isControlled ? <span className="app-pill red">Controlado</span> : p.requiresRx && <span className="app-pill red">Receta</span>}
                     {!!p.withdrawalDays && <span className="app-pill red">Retiro {p.withdrawalDays} d</span>}
+                    {warn && <span className="app-pill amber">{warn.label}</span>}
                   </span>
                 </button>
-                {p.unitsPerPackage > 1 && !out && (
-                  <button type="button" className="pos-pack" onClick={() => add(p, "PACKAGE")}>
-                    + empaque x{p.unitsPerPackage} · {money(unitPrice(p, "PACKAGE"))}
+                {!out && presentations(p).filter((u) => u !== "UNIT" && factor(p, u) <= stock).map((u) => (
+                  <button key={u} type="button" className="pos-pack" onClick={() => add(p, u)}>
+                    + {unitLabel(p, u)} · {money(unitPrice(p, u))}
                   </button>
-                )}
+                ))}
               </div>
             );
           })}
@@ -435,6 +514,13 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
             <p className="pos-receipt-num">{receipt.number}</p>
             <p className="pos-receipt-total">S/ {receipt.total}</p>
             {receipt.change !== null && <p>Vuelto: <strong>{money(receipt.change)}</strong></p>}
+            {receipt.wallet && (
+              <p className="pos-receipt-note">
+                {Number(receipt.wallet.redeemed) > 0 && <>Pagado con monedero: {money(Number(receipt.wallet.redeemed))}. </>}
+                {Number(receipt.wallet.earned) > 0 && <>Ganó {money(Number(receipt.wallet.earned))}. </>}
+                Saldo del monedero: <strong>{money(Number(receipt.wallet.balance))}</strong>
+              </p>
+            )}
             {receipt.warnings.map((w) => <p key={w} className="pos-warning">{w}</p>)}
             <p className="pos-receipt-note">El comprobante se envía a SUNAT automáticamente; su estado aparece en Comprobantes.</p>
             <button type="button" className="pos-pay" onClick={resetSale} autoFocus>Nueva venta</button>

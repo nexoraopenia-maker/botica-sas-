@@ -19,6 +19,6 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
       </Panel>
     );
   }
-  return <Pos products={pos.products} branchId={pos.branchId} branchName={pos.branchName} series={pos.series} otcOnly={otc === "1"}
+  return <Pos products={pos.products} branchId={pos.branchId} branchName={pos.branchName} series={pos.series} otcOnly={otc === "1"} today={pos.today} sellers={pos.sellers} currentUserId={ctx.userId} loyaltyEnabled={pos.loyaltyEnabled}
     canDispenseRx={ctx.modules.has("PHARMACY") && hasPermission(ctx.permissions, "pharmacy.dispense_rx")} />;
 }

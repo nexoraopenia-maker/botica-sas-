@@ -87,6 +87,13 @@ enum SecretKind {
   WHATSAPP_TOKEN
 }
 
+enum WalletTransactionType {
+  EARN
+  REDEEM
+  EARN_REVERSAL
+  REDEEM_REFUND
+}
+
 enum WhatsappProvider {
   META_CLOUD
   WEB_QR
@@ -127,10 +134,12 @@ enum PaymentMethod {
   TARJETA
   TRANSFERENCIA
   CREDITO
+  MONEDERO
 }
 
 enum SaleUnit {
   UNIT
+  BLISTER
   PACKAGE
 }
 
@@ -476,17 +485,20 @@ model Tenant {
   updated_at             DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
   deleted_at             DateTime?        @db.Timestamptz(6)
 
-  modules        TenantModule[]
-  subscriptions  Subscription[]
-  usage          UsageCounter[]
-  impersonations ImpersonationSession[]
-  exports        TenantExport[]
-  secrets        TenantSecret[]
-  branches       Branch[]
-  members        TenantUser[]
-  roles          Role[]
-  whatsapp       WhatsappSettings?
-  cashClosures   CashClosure[]
+  modules         TenantModule[]
+  subscriptions   Subscription[]
+  usage           UsageCounter[]
+  impersonations  ImpersonationSession[]
+  exports         TenantExport[]
+  secrets         TenantSecret[]
+  branches        Branch[]
+  members         TenantUser[]
+  roles           Role[]
+  whatsapp        WhatsappSettings?
+  loyalty         LoyaltySettings?
+  wallets         CustomerWallet[]
+  commissionRates SellerCommissionRate[]
+  cashClosures    CashClosure[]
 
   @@index([status])
   @@map("tenants")
@@ -540,6 +552,71 @@ model WhatsappSettings {
   @@map("whatsapp_settings")
 }
 
+/// Monedero virtual: % de cada compra que se acumula como saldo a favor del cliente.
+model LoyaltySettings {
+  tenant_id    String   @id @db.Uuid
+  enabled      Boolean  @default(false)
+  earn_percent Decimal  @default(0) @db.Decimal(5, 2)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id], map: "loyalty_settings_tenant_fk")
+
+  @@map("loyalty_settings")
+}
+
+model CustomerWallet {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String   @db.Uuid
+  customer_id String   @db.Uuid
+  balance     Decimal  @default(0) @db.Decimal(14, 2) // CHECK >= 0
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  tenant       Tenant              @relation(fields: [tenant_id], references: [id], map: "customer_wallets_tenant_fk")
+  customer     Customer            @relation(fields: [tenant_id, customer_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "customer_wallets_customer_fk")
+  transactions WalletTransaction[]
+
+  @@unique([tenant_id, id])
+  @@unique([tenant_id, customer_id])
+  @@map("customer_wallets")
+}
+
+/// Movimientos del monedero. Registro inmutable: el saldo solo cambia con estas filas.
+model WalletTransaction {
+  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id     String                @db.Uuid
+  wallet_id     String                @db.Uuid
+  type          WalletTransactionType
+  /// Positivo suma al saldo, negativo resta
+  amount        Decimal               @db.Decimal(14, 2)
+  balance_after Decimal               @db.Decimal(14, 2)
+  /// Venta o nota de crédito que originó el movimiento
+  document_id   String                @db.Uuid
+  created_by    String?               @db.Uuid
+  created_at    DateTime              @default(now()) @db.Timestamptz(6)
+
+  wallet CustomerWallet @relation(fields: [tenant_id, wallet_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "wallet_transactions_wallet_fk")
+
+  @@unique([tenant_id, document_id, type])
+  @@index([tenant_id, wallet_id, created_at(sort: Desc)])
+  @@map("wallet_transactions")
+}
+
+/// % de comisión de cada vendedor del negocio.
+model SellerCommissionRate {
+  tenant_id  String   @db.Uuid
+  user_id    String   @db.Uuid
+  percent    Decimal  @db.Decimal(5, 2)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id], map: "seller_commission_rates_tenant_fk")
+
+  @@id([tenant_id, user_id])
+  @@map("seller_commission_rates")
+}
+
 /// Cierre de caja (arqueo). Registro inmutable: el rol de runtime solo puede leer e insertar.
 model CashClosure {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -570,17 +647,19 @@ model CashClosure {
 
 /// Establecimiento anexo SUNAT (código 0000 = domicilio fiscal)
 model Branch {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id  String    @db.Uuid
-  sunat_code String    @db.Char(4)
-  name       String
-  address    String
-  ubigeo     String    @db.Char(6)
-  phone      String?
-  is_active  Boolean   @default(true)
-  created_at DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  deleted_at DateTime? @db.Timestamptz(6)
+  id                         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                  String    @db.Uuid
+  sunat_code                 String    @db.Char(4)
+  name                       String
+  address                    String
+  ubigeo                     String    @db.Char(6)
+  phone                      String?
+  is_active                  Boolean   @default(true)
+  /// Código del establecimiento en el Observatorio de Precios de DIGEMID
+  digemid_establishment_code String?
+  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at                 DateTime? @db.Timestamptz(6)
 
   tenant    Tenant           @relation(fields: [tenant_id], references: [id])
   series    DocumentSeries[]
@@ -664,6 +743,9 @@ model Customer {
   updated_at      DateTime        @default(now()) @updatedAt @db.Timestamptz(6)
   deleted_at      DateTime?       @db.Timestamptz(6)
 
+  wallet CustomerWallet?
+
+  @@unique([tenant_id, id])
   @@index([tenant_id, name])
   @@map("customers") // único (tenant, doc_type, doc_number) parcial en SQL
 }
@@ -720,6 +802,12 @@ model Product {
   /// Precio por empaque (caja/blíster), IGV incluido; null = no se vende por empaque
   package_price     Decimal? @db.Decimal(14, 4)
   units_per_package Int      @default(1)
+  /// Unidades base por blíster (1 = no se vende por blíster). Ej.: caja 200, blíster 10 → 20 blísteres por caja
+  units_per_blister Int      @default(1)
+  /// Precio por blíster, IGV incluido; null = unidades × precio unitario
+  blister_price     Decimal? @db.Decimal(14, 4)
+  /// Nombre de la unidad base para mostrar (pastilla, tableta, ampolla…)
+  base_unit_name    String?
   package_unit_code String? // ej. BX
   allow_fractional  Boolean  @default(false) // venta a granel (kg, L)
   min_stock         Decimal  @default(0) @db.Decimal(14, 3)
@@ -927,23 +1015,27 @@ model Document {
   note_reason_code String? @db.Char(2) // catálogo 09 / 10
   note_reason_text String?
 
-  status            DocumentStatus @default(PENDIENTE)
-  sunat_code        String?
-  sunat_description String?
-  sunat_notes       String[]
-  hash              String? // DigestValue
-  xml_path          String?
-  cdr_path          String?
-  sent_at           DateTime?      @db.Timestamptz(6)
-  accepted_at       DateTime?      @db.Timestamptz(6)
-  void_reason       String?
-  voided_at         DateTime?      @db.Timestamptz(6)
+  status                    DocumentStatus @default(PENDIENTE)
+  sunat_code                String?
+  sunat_description         String?
+  sunat_notes               String[]
+  hash                      String? // DigestValue
+  xml_path                  String?
+  cdr_path                  String?
+  sent_at                   DateTime?      @db.Timestamptz(6)
+  accepted_at               DateTime?      @db.Timestamptz(6)
+  void_reason               String?
+  voided_at                 DateTime?      @db.Timestamptz(6)
   /// Idempotencia de POS (UUID generado en el cliente)
-  idempotency_key   String?        @db.Uuid
-  created_by        String?        @db.Uuid
-  created_at        DateTime       @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime?      @db.Timestamptz(6)
+  idempotency_key           String?        @db.Uuid
+  created_by                String?        @db.Uuid
+  /// Vendedor de la venta (puede ser distinto de quien cobró)
+  seller_id                 String?        @db.Uuid
+  /// % de comisión vigente al vender: cambiar la tasa no altera ventas pasadas
+  seller_commission_percent Decimal?       @db.Decimal(5, 2)
+  created_at                DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at                DateTime?      @db.Timestamptz(6)
 
   branch      Branch            @relation(fields: [tenant_id, branch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "documents_branch_tenant_fk")
   refDocument Document?         @relation("DocumentReference", fields: [ref_document_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "documents_ref_fk")
@@ -956,6 +1048,7 @@ model Document {
   @@unique([tenant_id, idempotency_key])
   @@index([tenant_id, status, created_at])
   @@index([tenant_id, issue_date])
+  @@index([tenant_id, seller_id, issue_date])
   @@map("documents")
 }
 

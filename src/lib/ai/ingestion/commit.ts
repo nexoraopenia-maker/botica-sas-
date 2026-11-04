@@ -2,6 +2,8 @@ import "server-only";
 import { z } from "zod";
 import { withTenant, Prisma, type TenantDbContext } from "@/lib/db";
 import { D, round2 } from "@/lib/money";
+import { lotProblem } from "@/lib/inventory/expiry-rules";
+import { limaNow } from "@/lib/time";
 import { DomainError } from "@/lib/result";
 import { audit } from "@/lib/audit";
 import { isValidRuc } from "@/lib/sunat/validation";
@@ -39,7 +41,7 @@ export const approveIngestionSchema = z.object({
         purchaseUnit: z.enum(["UNIT", "PACKAGE"]),
         unitsPerPackage: z.number().int().min(1).default(1),
         unitCostWithoutIgv: dec,
-        lotCode: z.string().max(40).optional(),
+        lotCode: z.string().trim().max(40).optional(),
         expiryDate: z.iso.date().optional(),
       }),
     )
@@ -69,6 +71,25 @@ export async function approveIngestion(ctx: TenantDbContext, raw: z.input<typeof
         INSERT INTO suppliers (tenant_id, ruc, legal_name) VALUES (${ctx.tenantId}::uuid, ${input.supplier.ruc}, ${input.supplier.legalName})
         ON CONFLICT (tenant_id, ruc) WHERE deleted_at IS NULL DO UPDATE SET legal_name = EXCLUDED.legal_name
         RETURNING id`;
+
+      // Lote y vencimiento son obligatorios para todo lo que se controla por lotes
+      const today = limaNow().date;
+      const existingIds = toReceive.map((i) => i.productId).filter((x): x is string => !!x);
+      const tracked = new Map((await tx.product.findMany({ where: { id: { in: existingIds } }, select: { id: true, name: true, tracks_batches: true, is_service: true } })).map((p) => [p.id, p]));
+      for (const it of toReceive) {
+        const p = it.productId ? tracked.get(it.productId) : null;
+        if (p && (!p.tracks_batches || p.is_service)) continue;
+        const label = p?.name ?? it.newProduct?.name ?? "Producto";
+        const problem = lotProblem(it, today);
+        if (problem) throw new DomainError("LOT_REQUIRED", `${label}: ${problem}.`);
+        if (p) {
+          // Un mismo lote tiene un solo vencimiento: una diferencia suele ser un error de digitación
+          const same = await tx.productBatch.findFirst({ where: { branch_id: job.branch_id, product_id: p.id, lot_code: it.lotCode!.trim(), deleted_at: null }, select: { expiry_date: true } });
+          if (same?.expiry_date && same.expiry_date.toISOString().slice(0, 10) !== it.expiryDate) {
+            throw new DomainError("LOT_EXPIRY_MISMATCH", `${label}: el lote ${it.lotCode} ya está registrado con vencimiento ${same.expiry_date.toISOString().slice(0, 10)}.`);
+          }
+        }
+      }
 
       const fx = input.header.currency === "USD" ? (input.header.exchangeRate ?? null) : D(1);
       if (!fx) throw new DomainError("FX_REQUIRED", "Indique el tipo de cambio para compras en USD.");

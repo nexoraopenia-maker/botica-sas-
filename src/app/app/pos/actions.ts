@@ -9,6 +9,7 @@ import { searchProducts, type SearchResult } from "@/lib/pharmacy/search";
 import { closeCash, getCashSummary, type CashSummary, type closeCashSchema } from "@/lib/pos/cash-closure";
 import type { ClosureResult } from "@/lib/pos/cash-closure-calc";
 import type { z } from "zod";
+import { walletBalance } from "@/lib/loyalty/wallet";
 import { ok, toActionError, type ActionResult } from "@/lib/result";
 
 export async function createSaleAction(input: CreateSaleInput): Promise<ActionResult<SaleResult>> {
@@ -58,6 +59,17 @@ export async function closeCashAction(input: z.input<typeof closeCashSchema>): P
   try {
     const ctx = await requireTenant({ permission: "pos.sell", mutation: true, branchId: input.branchId });
     return ok(await closeCash({ tenantId: ctx.tenantId, userId: ctx.userId }, input));
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/** Saldo del monedero del cliente identificado en caja. null = cliente aún no registrado. */
+export async function walletBalanceAction(docType: "DNI" | "RUC", docNumber: string): Promise<ActionResult<{ balance: string | null }>> {
+  try {
+    const ctx = await requireTenant({ permission: "pos.sell" });
+    const valid = docType === "DNI" ? /^\d{8}$/.test(docNumber) : /^\d{11}$/.test(docNumber);
+    return ok({ balance: valid ? await walletBalance({ tenantId: ctx.tenantId, userId: ctx.userId }, docType, docNumber) : null });
   } catch (e) {
     return toActionError(e);
   }

@@ -643,3 +643,13 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .inv-controlled-note p { margin: 4px 0 0; font-size: 13px; }
 .inv-controlled-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .app-table tr.inv-controlled td:first-child { box-shadow: inset 3px 0 0 #b42318; }
+/* ── Fraccionamiento, monedero y vendedor en el POS ── */
+.pos-callout.amber { border-color: #f1d49a; border-left-color: #b86e00; background: #fff3dc; color: #7a4800; }
+.pos-unit { margin-left: 6px; padding: 1px 4px; font: inherit; font-size: 12px; color: var(--a-blue); border: 1px solid var(--a-line); border-radius: 6px; background: #fff; }
+.pos-wallet { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #eef6ff; font-size: 13px; }
+.pos-wallet input { width: 72px; padding: 5px 7px; font: inherit; border: 1px solid var(--a-line); border-radius: 8px; }
+.pos-seller { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--a-muted); }
+.pos-seller select { flex: 1; min-width: 0; padding: 7px 8px; font: inherit; color: var(--a-text); border: 1px solid var(--a-line); border-radius: 8px; background: #fff; }
+.digemid-input { width: 110px; padding: 6px 8px; font: inherit; border: 1px solid var(--a-line); border-radius: 8px; }
+.set-tabs a { padding: 9px 16px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--a-muted); text-decoration: none; white-space: nowrap; }
+.set-tabs a.on { background: #fff; color: var(--a-text); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }

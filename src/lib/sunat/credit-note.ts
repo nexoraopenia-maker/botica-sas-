@@ -1,4 +1,5 @@
 import "server-only";
+import { applyCreditNoteWallet } from "@/lib/loyalty/wallet";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { withTenant, type TenantDbContext } from "@/lib/db";
@@ -110,6 +111,7 @@ export async function issueCreditNote(ctx: TenantDbContext, raw: z.input<typeof 
         op_gratuitas: totals.opGratuitas, total_discount: totals.totalDiscount, igv: totals.igv, icbper: totals.icbper,
         total: totals.total, ref_document_id: ref.id, note_reason_code: input.reasonCode, note_reason_text: input.reasonText,
         idempotency_key: input.idempotencyKey, created_by: ctx.userId,
+        seller_id: ref.seller_id, seller_commission_percent: ref.seller_commission_percent,
       },
     });
     await tx.documentItem.createMany({
@@ -121,8 +123,11 @@ export async function issueCreditNote(ctx: TenantDbContext, raw: z.input<typeof 
         line_extension: l.totals.lineExtension, line_total: l.totals.lineTotal,
       })),
     });
-    if (input.refundMethod) {
-      await tx.documentPayment.create({ data: { tenant_id: ctx.tenantId, document_id: noteId, method: input.refundMethod, amount: round2(totals.total) } });
+    const toWallet = await applyCreditNoteWallet(tx, ctx, { customerId: ref.customer_id, saleId: ref.id, noteId, noteTotal: totals.total, saleTotal: ref.total });
+    // Lo que se pagó con monedero vuelve al monedero: solo se devuelve en dinero el resto
+    const refundMoney = round2(totals.total.minus(toWallet));
+    if (input.refundMethod && refundMoney.gt(0)) {
+      await tx.documentPayment.create({ data: { tenant_id: ctx.tenantId, document_id: noteId, method: input.refundMethod, amount: refundMoney } });
     }
     await tx.outboxEvent.create({
       data: {

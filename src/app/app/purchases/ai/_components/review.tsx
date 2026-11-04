@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { lotProblem } from "@/lib/inventory/expiry-rules";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { approveIngestionAction, runIngestionAction } from "../actions";
@@ -22,7 +23,7 @@ export interface ReviewItem {
   lotCode: string | null; expiryDate: string | null; confidence: number; matchedProductId: string | null; matchMethod: string;
   candidates: { productId: string; name: string; score: number }[]; unitsPerPackage: number | null; status: string;
 }
-export interface ProductOption { id: string; name: string; sku: string; unitsPerPackage: number }
+export interface ProductOption { id: string; name: string; sku: string; unitsPerPackage: number; tracksLots?: boolean }
 
 interface Line {
   action: "RECEIVE" | "IGNORE";
@@ -57,6 +58,8 @@ export function Review({ job, items, products }: { job: ReviewJob; items: Review
 
   const receiving = lines.filter((l) => l.action === "RECEIVE");
   const subtotal = receiving.reduce((a, l) => a + Number(l.quantity || 0) * Number(l.unitCost || 0), 0);
+  const noLots = new Set(products.filter((p) => p.tracksLots === false).map((p) => p.id));
+  const needsLot = (productId: string) => !noLots.has(productId);
   const unassigned = receiving.filter((l) => !l.productId).length;
   const editable = job.status === "NEEDS_REVIEW";
 
@@ -64,6 +67,12 @@ export function Review({ job, items, products }: { job: ReviewJob; items: Review
     setError(null);
     if (unassigned) return setError(`Asigne un producto a ${unassigned} línea(s) o márquelas como «No ingresar».`);
     if (h.currency === "USD" && !Number(fx)) return setError("Indique el tipo de cambio para compras en dólares.");
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+    for (const l of receiving) {
+      if (!needsLot(l.productId)) continue;
+      const problem = lotProblem({ lotCode: l.lot, expiryDate: l.expiry }, today);
+      if (problem) return setError(`${l.productId === "new" ? l.newName || "Producto nuevo" : productName.get(l.productId) ?? "Producto"}: ${problem}.`);
+    }
     start(async () => {
       const res = await approveIngestionAction({
         jobId: job.id,
@@ -233,8 +242,8 @@ export function Review({ job, items, products }: { job: ReviewJob; items: Review
                         <label className="set-field"><span>Unidades por empaque</span><input inputMode="numeric" value={l.unitsPerPackage} onChange={(e) => update(i, { unitsPerPackage: e.target.value.replace(/\D/g, "") })} /></label>
                       )}
                       <label className="set-field"><span>Costo unitario sin IGV *</span><input inputMode="decimal" value={l.unitCost} onChange={(e) => update(i, { unitCost: e.target.value })} /></label>
-                      <label className="set-field"><span>Lote</span><input value={l.lot} onChange={(e) => update(i, { lot: e.target.value.toUpperCase() })} placeholder="Sin lote" /></label>
-                      <label className="set-field"><span>Vencimiento</span><input type="date" value={l.expiry} onChange={(e) => update(i, { expiry: e.target.value })} /></label>
+                      <label className="set-field"><span>Lote{needsLot(l.productId) ? " *" : ""}</span><input aria-invalid={needsLot(l.productId) && !l.lot.trim()} value={l.lot} onChange={(e) => update(i, { lot: e.target.value.toUpperCase() })} placeholder="Sin lote" /></label>
+                      <label className="set-field"><span>Vencimiento{needsLot(l.productId) ? " *" : ""}</span><input type="date" aria-invalid={needsLot(l.productId) && !l.expiry} value={l.expiry} onChange={(e) => update(i, { expiry: e.target.value })} /></label>
                     </div>
                   )}
                 </div>

@@ -1,5 +1,6 @@
 import "server-only";
 import { withTenant, type TenantDbContext } from "@/lib/db";
+import { limaNow } from "@/lib/time";
 
 /** Producto tal como lo necesita la caja (serializable: decimales como string). */
 export interface PosProduct {
@@ -12,6 +13,9 @@ export interface PosProduct {
   salePrice: string;
   packagePrice: string | null;
   unitsPerPackage: number;
+  unitsPerBlister: number;
+  blisterPrice: string | null;
+  baseUnitName: string | null;
   packageUnitCode: string | null;
   allowFractional: boolean;
   igvAffectation: string;
@@ -21,6 +25,8 @@ export interface PosProduct {
   /** Stock vendible en unidad base (sin vencidos ni cuarentena) */
   available: string;
   nearestExpiry: string | null;
+  /** Stock que no se puede vender porque su lote venció */
+  expiredStock: string;
   withdrawalDays: number | null;
   withdrawalMeat: number | null;
   withdrawalMilk: number | null;
@@ -34,6 +40,10 @@ export interface PosContext {
   branchName: string;
   series: { BOLETA: string | null; FACTURA: string | null };
   products: PosProduct[];
+  today: string;
+  /** Usuarios del negocio que pueden vender */
+  sellers: { id: string; name: string }[];
+  loyaltyEnabled: boolean;
 }
 
 /** Catálogo completo de la sucursal para búsqueda/escaneo instantáneo en el navegador (hasta 3000 productos). */
@@ -51,12 +61,14 @@ export async function loadPosContext(ctx: TenantDbContext & { branchIds: string[
     const products = await tx.$queryRaw<PosProduct[]>`
       SELECT p.id, p.sku, p.barcode, p.name, p.dci, p.unit_code AS "unitCode", p.sale_price::text AS "salePrice",
              p.package_price::text AS "packagePrice", p.units_per_package AS "unitsPerPackage",
+             p.units_per_blister AS "unitsPerBlister", p.blister_price::text AS "blisterPrice", p.base_unit_name AS "baseUnitName",
              p.package_unit_code AS "packageUnitCode", p.allow_fractional AS "allowFractional",
              p.igv_affectation AS "igvAffectation",
              (p.is_controlled OR coalesce(p.sale_condition::text, '') IN ('PRESCRIPTION', 'RETAINED_PRESCRIPTION')) AS "requiresRx",
              p.is_service AS "isService", p.tracks_batches AS "tracksBatches",
-             coalesce(sum(b.stock), 0)::text AS available,
-             to_char(min(b.expiry_date), 'YYYY-MM-DD') AS "nearestExpiry",
+             coalesce(sum(b.stock) FILTER (WHERE b.expiry_date IS NULL OR b.expiry_date >= app.lima_today()), 0)::text AS available,
+             to_char(min(b.expiry_date) FILTER (WHERE b.expiry_date IS NULL OR b.expiry_date >= app.lima_today()), 'YYYY-MM-DD') AS "nearestExpiry",
+             coalesce(sum(b.stock) FILTER (WHERE b.expiry_date < app.lima_today()), 0)::text AS "expiredStock",
              greatest(p.withdrawal_days_meat, p.withdrawal_days_milk) AS "withdrawalDays",
              p.withdrawal_days_meat AS "withdrawalMeat", p.withdrawal_days_milk AS "withdrawalMilk",
              p.is_controlled AS "isControlled",
@@ -65,13 +77,20 @@ export async function loadPosContext(ctx: TenantDbContext & { branchIds: string[
                   WHEN p.sale_condition::text = 'PRESCRIPTION' THEN 'SIMPLE' END AS "rxKind"
         FROM products p
         LEFT JOIN product_batches b
-               ON b.product_id = p.id AND b.branch_id = ${branch.id}::uuid AND b.stock > 0 AND b.deleted_at IS NULL
-              AND NOT b.is_quarantined AND (b.expiry_date IS NULL OR b.expiry_date >= app.lima_today())
+               ON b.product_id = p.id AND b.branch_id = ${branch.id}::uuid AND b.stock > 0 AND b.deleted_at IS NULL AND NOT b.is_quarantined
        WHERE p.deleted_at IS NULL AND p.is_active
        GROUP BY p.id
        ORDER BY p.name
        LIMIT 3000`;
+    const members = await tx.tenantUser.findMany({ where: { status: "ACTIVE", deleted_at: null }, include: { role: { select: { permissions: true } }, user: { select: { full_name: true, email: true } } } });
+    const loyalty = await tx.loyaltySettings.findUnique({ where: { tenant_id: ctx.tenantId }, select: { enabled: true } });
     return {
+      today: limaNow().date,
+      sellers: members
+        .filter((m) => m.role.permissions.includes("*") || m.role.permissions.includes("pos.sell"))
+        .map((m) => ({ id: m.user_id, name: m.user.full_name ?? m.user.email }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      loyaltyEnabled: !!loyalty?.enabled,
       branchId: branch.id,
       branchName: branch.name,
       series: {

@@ -32,7 +32,7 @@ export default async function AiPurchasePage({ searchParams }: { searchParams: P
       if (!job) return null;
       const products = await tx.product.findMany({
         where: { deleted_at: null, is_active: true }, orderBy: { name: "asc" }, take: 3000,
-        select: { id: true, name: true, sku: true, units_per_package: true },
+        select: { id: true, name: true, sku: true, units_per_package: true, tracks_batches: true, is_service: true },
       });
       return { job, products };
     });
@@ -63,7 +63,7 @@ export default async function AiPurchasePage({ searchParams }: { searchParams: P
         <PageHeader title="Revisar factura" subtitle="Verifique los datos leídos antes de ingresarlos al inventario"
           actions={<Link href="/app/purchases/ai" className="app-btn">← Volver</Link>} />
         <Review job={review} items={items}
-          products={data.products.map((p) => ({ id: p.id, name: p.name, sku: p.sku, unitsPerPackage: p.units_per_package }))} />
+          products={data.products.map((p) => ({ id: p.id, name: p.name, sku: p.sku, unitsPerPackage: p.units_per_package, tracksLots: p.tracks_batches && !p.is_service }))} />
       </>
     );
   }
