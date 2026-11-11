@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireTenant } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/auth/permissions";
 import { loadInventoryList } from "@/lib/inventory/list";
+import { criticalLotCount } from "@/lib/inventory/expiry";
 import { formatStock } from "@/lib/pharmacy/fractioning";
 import { D } from "@/lib/money";
 import { bookMismatch } from "@/lib/pharmacy/controlled-rules";
@@ -12,7 +13,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const ctx = await requireTenant({ permission: "inventory.read" });
   const pharmacy = ctx.modules.has("PHARMACY");
   const onlyIncomplete = ver === "incompletos";
-  const { rows, noCategory, noKind } = await loadInventoryList({ tenantId: ctx.tenantId, userId: ctx.userId }, { pharmacy, onlyIncomplete });
+  const db = { tenantId: ctx.tenantId, userId: ctx.userId };
+  const [{ rows, noCategory, noKind }, critical] = await Promise.all([loadInventoryList(db, { pharmacy, onlyIncomplete }), criticalLotCount(db, ctx.branchIds)]);
   const controlled = rows.filter((r) => r.is_controlled);
   const mismatched = controlled.filter((r) => bookMismatch(r.total_stock, r.book_balance));
   const onlyControlled = ver === "controlados";
@@ -23,7 +25,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       <PageHeader title="Productos y stock" subtitle="Stock vendible por producto (los lotes vencidos se excluyen de la venta)"
         actions={
           <>
-            <Link href="/app/inventory/expiry" className="app-btn">Ver caducidad</Link>
+            <Link href="/app/inventory/expiry" className={critical > 0 ? "app-btn inv-critical-btn" : "app-btn"}>
+              {critical > 0 ? `Lotes críticos (${critical})` : "Ver caducidad"}
+            </Link>
             {hasPermission(ctx.permissions, "products.manage") && <Link href="/app/inventory/import" className="app-btn">Carga masiva</Link>}
             {hasPermission(ctx.permissions, "products.manage") && <Link href="/app/inventory/new" className="app-btn primary">+ Nuevo producto</Link>}
           </>

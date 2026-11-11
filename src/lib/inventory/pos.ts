@@ -216,6 +216,20 @@ export async function createSale(ctx: TenantDbContext, rawInput: CreateSaleInput
       const redeem = sum(input.payments.filter((p) => p.method === "MONEDERO").map((p) => p.amount));
       const wallet = await applySaleWallet(tx, ctx, { customerId, documentId, total: totals.total, redeem: round2(redeem), paymentTerms: input.paymentTerms });
 
+      // 5b) Un lote elegido a mano debe poder venderse. app.consume_stock_fefo ignora en silencio un lote vencido y usa el siguiente:
+      //     aquí se rechaza de forma explícita, para que nadie crea que vendió de un lote que en realidad no se tocó.
+      for (const l of lines) {
+        const wanted = l.item.preferredBatchId;
+        if (!wanted || !l.product.tracks_batches || l.product.is_service) continue;
+        const lot = await tx.productBatch.findFirst({ where: { id: wanted, product_id: l.product.id, branch_id: input.branchId, deleted_at: null } });
+        if (!lot) throw new DomainError("LOT_INVALID", `El lote elegido no corresponde a ${l.product.name} en esta sucursal.`);
+        if (lot.expiry_date && lot.expiry_date.toISOString().slice(0, 10) < now.date) {
+          throw new DomainError("EXPIRED_LOT", `El lote ${lot.lot_code} de ${l.product.name} venció el ${lot.expiry_date.toISOString().slice(0, 10)}: no se puede vender.`);
+        }
+        if (lot.is_quarantined) throw new DomainError("QUARANTINED_LOT", `El lote ${lot.lot_code} de ${l.product.name} está en cuarentena: no se puede vender.`);
+        if (lot.stock.lte(0)) throw new DomainError("LOT_EMPTY", `El lote ${lot.lot_code} de ${l.product.name} no tiene stock.`);
+      }
+
       // 6) Stock FEFO — orden determinista por product_id
       const allocations = new Map<number, FefoAllocation[]>();
       const ordered = [...lines].sort((a, b) => a.product.id.localeCompare(b.product.id) || a.idx - b.idx);

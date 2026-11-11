@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createSaleAction, walletBalanceAction } from "@/app/app/pos/actions";
-import { expiryWarning } from "@/lib/inventory/expiry-rules";
+import { expiryWarning, isSellableLot, lotStatus, olderLotThan, suggestLot, type LotInfo } from "@/lib/inventory/expiry-rules";
 import { findSubstitutes, matchesSearch } from "@/lib/pharmacy/substitutes";
 import { categoryOptions, inCategory, NO_CATEGORY } from "@/lib/inventory/pos-categories";
 import { ICBPER_PER_BAG } from "@/lib/sunat/rates";
@@ -25,6 +25,8 @@ interface CartLine {
   qty: number;
   /** Receta ya validada (obligatoria en productos con receta o controlados) */
   prescriptionId?: string;
+  /** Lote elegido a mano; sin él se vende el más antiguo que vence primero (FEFO) */
+  lotId?: string;
 }
 
 interface Receipt {
@@ -203,6 +205,16 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
     setCart((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty } : l)));
   }
 
+  /** Lote del que saldrá la venta: el elegido a mano o, si no, el sugerido por FEFO. */
+  function effectiveLot(l: CartLine): LotInfo | null {
+    const chosen = l.lotId ? l.product.lots.find((x) => x.id === l.lotId) : undefined;
+    return chosen ?? suggestLot(l.product.lots, today);
+  }
+
+  function setLot(line: CartLine, lotId: string) {
+    setCart((prev) => prev.map((l) => (l.key === line.key ? { ...l, lotId: lotId || undefined } : l)));
+  }
+
   /** Cambia la presentación de la línea (pastilla → blíster → caja), si hay stock para ella. */
   function setLineUnit(line: CartLine, unit: SaleUnit) {
     if (unit === line.unit) return;
@@ -215,7 +227,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
       const without = prev.filter((l) => l.key !== line.key);
       const merged = without.find((l) => l.product.id === p.id && l.unit === unit);
       if (merged) return without.map((l) => (l === merged ? { ...l, qty: l.qty + 1 } : l));
-      return [...without, { key: `${p.id}:${unit}`, product: p, unit, qty: 1, prescriptionId: line.prescriptionId }];
+      return [...without, { key: `${p.id}:${unit}`, product: p, unit, qty: 1, prescriptionId: line.prescriptionId, lotId: line.lotId }];
     });
   }
 
@@ -250,8 +262,12 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
   const change = method === "EFECTIVO" && received ? receivedN - toPay : null;
   const needsId = docType === "BOLETA" && total > 700;
   const currentSeries = series[docType];
-  const expiringLines = [...new Map(cart.map((l) => [l.product.id, l.product])).values()]
-    .map((p) => ({ p, warn: expiryWarning(p.nearestExpiry, today) })).filter((x) => x.warn);
+  // El aviso es del lote que realmente se va a vender, no del más próximo a vencer del producto
+  const expiringLines = [...new Map(cart.flatMap((l) => {
+    const lot = effectiveLot(l);
+    const warn = lot ? expiryWarning(lot.expiry, today) : null;
+    return lot && warn ? [[`${l.product.id}:${lot.id}`, { p: l.product, lot, warn }] as const] : [];
+  })).values()];
   // Saldo del monedero al identificar al cliente
   useEffect(() => {
     setWalletBalance(null);
@@ -309,7 +325,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
         docType,
         series: currentSeries,
         customer,
-        items: cart.map((l) => ({ productId: l.product.id, saleUnit: l.unit, quantity: l.qty, prescriptionId: l.prescriptionId })),
+        items: cart.map((l) => ({ productId: l.product.id, saleUnit: l.unit, quantity: l.qty, prescriptionId: l.prescriptionId, preferredBatchId: l.lotId })),
         sellerId,
         payments: [
           ...(walletAmount > 0 ? [{ method: "MONEDERO" as const, amount: walletAmount.toFixed(2) }] : []),
@@ -369,6 +385,33 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
               <button type="button" aria-label="Agregar uno" onClick={() => setQty(l, l.qty + 1)}>+</button>
             </div>
             <strong className="pos-line-total">{money(lineTotal(l))}</strong>
+            {l.product.tracksBatches && !l.product.isService && l.product.lots.length > 0 && (() => {
+              const lot = effectiveLot(l);
+              const older = lot && l.lotId ? olderLotThan(lot, l.product.lots, today) : null;
+              const warn = lot ? expiryWarning(lot.expiry, today) : null;
+              return (
+                <div className="pos-lot">
+                  <label>
+                    <span>Lote</span>
+                    <select value={l.lotId ?? ""} onChange={(e) => setLot(l, e.target.value)} aria-label={`Lote de ${l.product.name}`}>
+                      <option value="">{lot ? `Automático (FEFO): ${lot.code}${lot.expiry ? ` · vence ${lot.expiry}` : ""}` : "Sin lote vendible"}</option>
+                      {l.product.lots.map((x) => {
+                        const status = lotStatus(x, today);
+                        return (
+                          <option key={x.id} value={x.id} disabled={!isSellableLot(x, today)}>
+                            {x.code} · {x.expiry ? `vence ${x.expiry}` : "sin vencimiento"} · stock {x.stock}
+                            {status === "expired" ? " · VENCIDO (bloqueado)" : status === "quarantined" ? " · en cuarentena (bloqueado)" : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                  {warn && <span className="app-pill amber">{warn.label}</span>}
+                  {older && <span className="pos-lot-note">Hay un lote más antiguo ({older.code}, vence {older.expiry}): FEFO recomienda venderlo primero.</span>}
+                  {lot && l.lotId && baseQty(l) > Number(lot.stock) && <span className="pos-lot-note">El lote tiene {lot.stock}: el resto sale del siguiente lote.</span>}
+                </div>
+              );
+            })()}
             {l.prescriptionId && <span className="pos-rx-ok">Receta validada</span>}
           </div>
         ))}
@@ -400,7 +443,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
       {expiringLines.length > 0 && (
         <div className="pos-callout amber" role="status">
           <strong>Lote próximo a vencer</strong>
-          {expiringLines.map(({ p, warn }) => <p key={p.id}>{p.name}: {warn!.label.toLowerCase()} ({p.nearestExpiry}). Verifique el lote y avise al cliente.</p>)}
+          {expiringLines.map(({ p, lot, warn }) => <p key={`${p.id}:${lot.id}`}>{p.name}: el lote {lot.code} {warn.label.toLowerCase()} ({lot.expiry}). Verifique el lote y avise al cliente.</p>)}
         </div>
       )}
 
@@ -577,7 +620,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
 
       {/* Barra inferior móvil */}
       <button type="button" className="pos-bar" onClick={() => setSheet(true)} disabled={cart.length === 0}>
-        <span>{items} {items === 1 ? "producto" : "productos"}</span>
+        <span>{items} {items === 1 ? "producto" : "productos"}{expiringLines.length > 0 ? " · ⚠ lote por vencer" : ""}</span>
         <strong>Cobrar {money(total)}</strong>
       </button>
 

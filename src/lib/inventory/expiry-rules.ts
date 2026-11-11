@@ -19,3 +19,45 @@ export function lotProblem(item: { lotCode?: string | null | undefined; expiryDa
   if (item.expiryDate <= today) return `el lote ${item.lotCode.trim()} ya está vencido`;
   return null;
 }
+
+// ── Lotes en la caja ─────────────────────────────────────────────────────────
+
+/** Lote con stock de un producto en la sucursal, tal como lo necesita la caja. */
+export interface LotInfo {
+  id: string;
+  code: string;
+  /** YYYY-MM-DD; null = sin vencimiento */
+  expiry: string | null;
+  /** Unidad base */
+  stock: string;
+  quarantined: boolean;
+}
+
+export type LotStatus = "expired" | "quarantined" | "critical" | "ok";
+
+/** Un lote vence al terminar su fecha: el día del vencimiento todavía se vende (igual que app.consume_stock_fefo). */
+export function lotStatus(lot: Pick<LotInfo, "expiry" | "quarantined">, today: string, warnDays = POS_EXPIRY_WARN_DAYS): LotStatus {
+  if (lot.quarantined) return "quarantined";
+  if (!lot.expiry) return "ok";
+  const days = daysUntil(today, lot.expiry);
+  return days < 0 ? "expired" : days <= warnDays ? "critical" : "ok";
+}
+
+export const isSellableLot = (lot: LotInfo, today: string): boolean => {
+  const status = lotStatus(lot, today);
+  return status !== "expired" && status !== "quarantined" && Number(lot.stock) > 0;
+};
+
+/** Orden FEFO: vence antes, primero; los que no vencen, al final. Estable: a igual fecha se respeta el orden recibido. */
+const byExpiry = (a: LotInfo, b: LotInfo): number => (a.expiry ?? "9999-12-31").localeCompare(b.expiry ?? "9999-12-31");
+
+/** Lote que se vende primero (FEFO): el vendible que vence antes. null = no hay lote vendible. */
+export function suggestLot(lots: readonly LotInfo[], today: string): LotInfo | null {
+  return [...lots].filter((l) => isSellableLot(l, today)).sort(byExpiry)[0] ?? null;
+}
+
+/** Lote vendible que vence antes que el elegido (para avisar que FEFO recomienda otro), o null. */
+export function olderLotThan(chosen: LotInfo, lots: readonly LotInfo[], today: string): LotInfo | null {
+  const older = [...lots].filter((l) => l.id !== chosen.id && isSellableLot(l, today) && byExpiry(l, chosen) < 0).sort(byExpiry);
+  return older[0] ?? null;
+}

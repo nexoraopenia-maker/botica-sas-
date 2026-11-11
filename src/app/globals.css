@@ -690,3 +690,8 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .pos-cat:focus-visible { outline: 2px solid var(--a-blue); outline-offset: 2px; }
 .inv-incomplete-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding: 12px 16px; border: 1px solid #b9d4ff; border-left: 4px solid var(--a-blue); border-radius: 12px; background: #f3f8ff; color: #1b3a6b; font-size: 14px; }
 .inv-incomplete-note p { margin: 4px 0 0; font-size: 13px; }
+.inv-critical-btn { color: #b42318; border-color: #f3b4ae; background: #fde9e8; font-weight: 600; }
+.pos-lot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--a-muted); }
+.pos-lot label { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.pos-lot select { min-width: 0; max-width: 100%; padding: 4px 6px; font: inherit; color: var(--a-text); border: 1px solid var(--a-line); border-radius: 8px; background: #fff; }
+.pos-lot-note { color: #7a4800; }

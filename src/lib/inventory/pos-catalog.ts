@@ -1,6 +1,7 @@
 import "server-only";
 import { withTenant, type TenantDbContext } from "@/lib/db";
 import { limaNow } from "@/lib/time";
+import type { LotInfo } from "@/lib/inventory/expiry-rules";
 
 /** Producto tal como lo necesita la caja (serializable: decimales como string). */
 export interface PosProduct {
@@ -18,6 +19,8 @@ export interface PosProduct {
   icbper: boolean;
   categoryId: string | null;
   categoryName: string | null;
+  /** Lotes con stock de la sucursal: primero los vendibles en orden FEFO, luego vencidos y en cuarentena (máx. 8) */
+  lots: LotInfo[];
   unitCode: string;
   salePrice: string;
   packagePrice: string | null;
@@ -82,6 +85,15 @@ export async function loadPosContext(ctx: TenantDbContext & { branchIds: string[
              p.igv_affectation AS "igvAffectation",
              (p.is_controlled OR coalesce(p.sale_condition::text, '') IN ('PRESCRIPTION', 'RETAINED_PRESCRIPTION')) AS "requiresRx",
              p.is_service AS "isService", p.tracks_batches AS "tracksBatches",
+             (SELECT coalesce(json_agg(json_build_object('id', x.id, 'code', x.lot_code, 'expiry', to_char(x.expiry_date, 'YYYY-MM-DD'),
+                                                          'stock', x.stock::text, 'quarantined', x.is_quarantined)
+                                      ORDER BY x.blocked, x.expiry_date NULLS LAST, x.received_at, x.id), '[]'::json)
+                FROM (SELECT b2.id, b2.lot_code, b2.expiry_date, b2.stock, b2.is_quarantined, b2.received_at,
+                             (b2.is_quarantined OR b2.expiry_date < app.lima_today()) AS blocked
+                        FROM product_batches b2
+                       WHERE b2.product_id = p.id AND b2.branch_id = ${branch.id}::uuid AND b2.stock > 0 AND b2.deleted_at IS NULL
+                       ORDER BY (b2.is_quarantined OR b2.expiry_date < app.lima_today()), b2.expiry_date NULLS LAST, b2.received_at, b2.id
+                       LIMIT 8) x) AS lots,
              coalesce(sum(b.stock) FILTER (WHERE b.expiry_date IS NULL OR b.expiry_date >= app.lima_today()), 0)::text AS available,
              to_char(min(b.expiry_date) FILTER (WHERE b.expiry_date IS NULL OR b.expiry_date >= app.lima_today()), 'YYYY-MM-DD') AS "nearestExpiry",
              coalesce(sum(b.stock) FILTER (WHERE b.expiry_date < app.lima_today()), 0)::text AS "expiredStock",
