@@ -101,7 +101,17 @@ describe("permisos del cajero", () => {
     expect(hasPermission(cashier, "reports.accounting")).toBe(false);
     expect(hasPermission(cashier, "pos.sell")).toBe(true);
   });
-  it("puede emitir notas de crédito", () => {
+  it("puede emitir notas de crédito, pero no autorizar controlados", () => {
     expect(hasPermission(cashier, "documents.credit_note")).toBe(true);
+    expect(hasPermission(cashier, "pharmacy.controlled_log")).toBe(false);
+  });
+  it("el químico farmacéutico puede emitir notas y autorizar controlados", () => {
+    const pharmacist = SYSTEM_ROLES.pharmacist!.permissions as readonly string[];
+    expect(hasPermission(pharmacist, "documents.credit_note")).toBe(true);
+    expect(hasPermission(pharmacist, "pharmacy.controlled_log")).toBe(true);
+  });
+  it("solo los roles con autorización de controlados pueden devolverlos", () => {
+    const can = (key: string) => hasPermission(SYSTEM_ROLES[key]!.permissions as readonly string[], "pharmacy.controlled_log");
+    expect(Object.keys(SYSTEM_ROLES).filter(can).sort()).toEqual(["admin", "pharmacist"]);
   });
 });

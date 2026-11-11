@@ -1,6 +1,7 @@
 import "server-only";
 import { applyCreditNoteWallet } from "@/lib/loyalty/wallet";
 import { findActiveBranch } from "@/lib/inventory/pos-catalog";
+import { hasPermission } from "@/lib/auth/permissions";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { withTenant, type TenantDbContext } from "@/lib/db";
@@ -28,7 +29,14 @@ export const creditNoteSchema = z.object({
  * Nota de crédito. Para devoluciones/anulación (01, 06, 07) repone stock a los
  * MISMOS lotes que se vendieron (document_item_lots), en orden inverso al FEFO.
  */
-export async function issueCreditNote(ctx: TenantDbContext & { branchIds?: string[] }, raw: z.input<typeof creditNoteSchema>): Promise<{ documentId: string; series: string; number: number }> {
+/** Quién puede devolver productos controlados: el químico farmacéutico (pharmacy.controlled_log) y el administrador ('*'). */
+export const CONTROLLED_CREDIT_NOTE_MESSAGE = "Solo el Químico Farmacéutico o Administrador puede emitir notas de crédito para medicamentos controlados.";
+
+/**
+ * `permissions` son los del usuario en sesión. Sin ellos no se emiten notas con controlados: la regla se aplica aquí
+ * y no solo en la pantalla, para que ninguna otra ruta que llame a esta función la salte.
+ */
+export async function issueCreditNote(ctx: TenantDbContext & { branchIds?: string[]; permissions?: readonly string[] }, raw: z.input<typeof creditNoteSchema>): Promise<{ documentId: string; series: string; number: number }> {
   const input = creditNoteSchema.parse(raw);
   const now = limaNow();
 
@@ -71,6 +79,8 @@ export async function issueCreditNote(ctx: TenantDbContext & { branchIds?: strin
     if (new Set(selected.map((l) => l.it.id)).size !== selected.length) throw new DomainError("INVALID_LINE", "Hay una línea repetida.");
     const productIds = [...new Set(ref.items.map((i) => i.product_id).filter((x): x is string => !!x))];
     const products = new Map((await tx.product.findMany({ where: { id: { in: productIds } }, select: { id: true, allow_fractional: true, is_controlled: true } })).map((p) => [p.id, p]));
+    const touchesControlled = selected.some((l) => l.it.product_id && products.get(l.it.product_id)?.is_controlled);
+    if (touchesControlled && !hasPermission(ctx.permissions ?? [], "pharmacy.controlled_log")) throw new DomainError("FORBIDDEN", CONTROLLED_CREDIT_NOTE_MESSAGE);
     // Tope por producto, no por línea: una venta puede tener el mismo producto en blíster y en caja
     const sold = new Map<string, Decimal>();
     for (const i of ref.items) if (i.product_id) sold.set(i.product_id, (sold.get(i.product_id) ?? D(0)).plus(i.base_quantity));
@@ -176,7 +186,7 @@ export async function issueCreditNote(ctx: TenantDbContext & { branchIds?: strin
   });
 }
 
-export interface CreditNoteLine { id: string; description: string; unitLabel: string; sold: string; remaining: string; unitPrice: string; lineTotal: string; fractional: boolean }
+export interface CreditNoteLine { id: string; description: string; unitLabel: string; sold: string; remaining: string; unitPrice: string; lineTotal: string; fractional: boolean; controlled: boolean }
 
 export interface CreditNoteContext {
   document: {
@@ -205,7 +215,7 @@ export async function loadCreditNoteContext(ctx: TenantDbContext, documentId: st
     if (!ref) return null;
     const series = await tx.documentSeries.findMany({ where: { branch_id: ref.branch_id, doc_type: "NOTA_CREDITO", is_active: true, series: { startsWith: ref.series[0]! } }, orderBy: { series: "asc" } });
     const ids = [...new Set(ref.items.map((i) => i.product_id).filter((x): x is string => !!x))];
-    const fractional = new Map((await tx.product.findMany({ where: { id: { in: ids } }, select: { id: true, allow_fractional: true } })).map((p) => [p.id, p.allow_fractional]));
+    const flags = new Map((await tx.product.findMany({ where: { id: { in: ids } }, select: { id: true, allow_fractional: true, is_controlled: true } })).map((p) => [p.id, p]));
     // Lo ya acreditado por producto se reparte entre sus líneas en orden: el servidor valida el tope por producto
     const pending = new Map<string, Decimal>();
     for (const n of ref.notes) for (const i of n.items) if (i.product_id) pending.set(i.product_id, (pending.get(i.product_id) ?? D(0)).plus(i.base_quantity));
@@ -216,7 +226,8 @@ export async function loadCreditNoteContext(ctx: TenantDbContext, documentId: st
       return {
         id: it.id, description: it.description, unitLabel: UNIT_LABEL[it.sale_unit] ?? "unidad", sold: it.quantity.toString(),
         remaining: it.base_quantity.minus(used).div(perUnit).toDecimalPlaces(3).toString(),
-        unitPrice: it.unit_price.toFixed(2), lineTotal: it.line_total.toFixed(2), fractional: it.product_id ? !!fractional.get(it.product_id) : false,
+        unitPrice: it.unit_price.toFixed(2), lineTotal: it.line_total.toFixed(2), fractional: it.product_id ? !!flags.get(it.product_id)?.allow_fractional : false,
+        controlled: it.product_id ? !!flags.get(it.product_id)?.is_controlled : false,
       };
     });
     const fullyCredited = lines.every((l) => D(l.remaining).lte(0));

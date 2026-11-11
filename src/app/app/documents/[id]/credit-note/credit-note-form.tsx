@@ -21,7 +21,7 @@ const REFUNDS: { key: Refund; label: string }[] = [
 const money = (n: number) => `S/ ${n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (v: string) => Number(v.replace(",", ".")) || 0;
 
-export function CreditNoteForm({ data }: { data: CreditNoteContext }) {
+export function CreditNoteForm({ data, canAuthorizeControlled }: { data: CreditNoteContext; canAuthorizeControlled: boolean }) {
   const router = useRouter();
   const { document: d, lines } = data;
   const key = useRef<string>(crypto.randomUUID());
@@ -47,10 +47,15 @@ export function CreditNoteForm({ data }: { data: CreditNoteContext }) {
   const chosen = partial
     ? lines.map((l) => ({ l, q: num(qty[l.id] ?? "") })).filter((x) => x.q > 0)
     : lines.map((l) => ({ l, q: Number(l.sold) }));
+  // Los controlados solo los devuelve el químico farmacéutico o el administrador; el servidor lo vuelve a exigir
+  const saleHasControlled = lines.some((l) => l.controlled);
+  const blockedControlled = chosen.filter((x) => x.l.controlled && !canAuthorizeControlled).map((x) => x.l.description);
+  const needsPharmacist = blockedControlled.length > 0;
   // Estimado: el total exacto, con su IGV y redondeo, lo calcula el servidor
   const total = chosen.reduce((a, { l, q }) => a + (Number(l.lineTotal) / Number(l.sold)) * q, 0);
 
   function validate(): string | null {
+    if (needsPharmacist) return "Se requiere al Químico Farmacéutico o Administrador para devolver medicamentos controlados.";
     if (partial && chosen.length === 0) return "Indique la cantidad de al menos un producto.";
     for (const { l, q } of chosen) {
       if (partial && q > Number(l.remaining)) return `${l.description}: solo quedan ${l.remaining} por devolver.`;
@@ -98,17 +103,25 @@ export function CreditNoteForm({ data }: { data: CreditNoteContext }) {
         </fieldset>
       </div>
 
+      {saleHasControlled && !canAuthorizeControlled && (
+        <p className={`set-msg ${needsPharmacist ? "bad" : "warn"}`} role={needsPharmacist ? "alert" : "status"} style={{ marginBottom: 12 }}>
+          {needsPharmacist
+            ? `Esta nota incluye medicamentos controlados (${blockedControlled.join(", ")}). Se requiere la autorización y firma del Químico Farmacéutico o del Administrador: pídale que la emita.`
+            : "Esta venta incluye medicamentos controlados. Solo el Químico Farmacéutico o el Administrador puede devolverlos; usted puede devolver el resto de los productos."}
+        </p>
+      )}
+
       <div className="app-table-wrap"><table className="app-table stack">
         <thead><tr><th>Producto</th><th className="num">Vendido</th><th className="num">Por devolver</th><th className="num">Precio</th><th className="num">{partial ? "Devolver" : "Se acredita"}</th></tr></thead>
         <tbody>{lines.map((l) => (
           <tr key={l.id}>
-            <td data-label="Producto"><strong>{l.description}</strong><span className="app-sub">{l.unitLabel}</span></td>
+            <td data-label="Producto"><strong>{l.description}</strong><span className="app-sub">{l.unitLabel}{l.controlled ? " · Controlado" : ""}</span></td>
             <td data-label="Vendido" className="num">{l.sold}</td>
             <td data-label="Por devolver" className="num">{l.remaining}</td>
             <td data-label="Precio" className="num">{money(Number(l.unitPrice))}</td>
             <td data-label={partial ? "Devolver" : "Se acredita"} className="num">
               {partial ? (
-                <input className="digemid-input" inputMode={l.fractional ? "decimal" : "numeric"} aria-label={`Cantidad a devolver de ${l.description}`} disabled={Number(l.remaining) <= 0} value={qty[l.id] ?? ""} placeholder="0"
+                <input className="digemid-input" inputMode={l.fractional ? "decimal" : "numeric"} aria-label={`Cantidad a devolver de ${l.description}`} disabled={Number(l.remaining) <= 0 || (l.controlled && !canAuthorizeControlled)} value={qty[l.id] ?? ""} placeholder="0"
                   onChange={(e) => setQty((p) => ({ ...p, [l.id]: e.target.value }))} />
               ) : l.sold}
             </td>
@@ -131,7 +144,7 @@ export function CreditNoteForm({ data }: { data: CreditNoteContext }) {
         {error && <p className="set-msg bad wide" role="alert">{error}</p>}
         <div className="wide nc-total">
           <span>Total estimado de la nota: <strong>{money(total)}</strong></span>
-          <button type="submit" className="app-btn primary">Revisar y emitir</button>
+          <button type="submit" className="app-btn primary" disabled={needsPharmacist} title={needsPharmacist ? "Requiere al Químico Farmacéutico o Administrador" : undefined}>Revisar y emitir</button>
         </div>
       </div>
 
@@ -149,7 +162,7 @@ export function CreditNoteForm({ data }: { data: CreditNoteContext }) {
             </dl>
             <div className="rx-actions" style={{ marginTop: 16 }}>
               <button type="button" className="app-btn" disabled={pending} onClick={() => setConfirming(false)}>Volver</button>
-              <button type="button" className="app-btn primary" disabled={pending} autoFocus onClick={issue}>{pending ? "Emitiendo…" : "Emitir nota de crédito"}</button>
+              <button type="button" className="app-btn primary" disabled={pending || needsPharmacist} autoFocus onClick={issue}>{pending ? "Emitiendo…" : "Emitir nota de crédito"}</button>
             </div>
           </div>
         </div>

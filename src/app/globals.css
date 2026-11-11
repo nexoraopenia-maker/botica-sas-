@@ -386,6 +386,7 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .set-msg { margin: 0; padding: 10px 14px; border-radius: 10px; font-size: 14px; }
 .set-msg.ok { background: #e3f6ec; color: #16794a; }
 .set-msg.bad { background: #fde9e8; color: #b42318; }
+.set-msg.warn { background: #fff3dc; color: #7a4800; }
 .set-pad { padding: 16px 20px; }
 .set-list { display: flex; flex-direction: column; }
 .set-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid #eef1f6; }

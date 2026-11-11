@@ -21,6 +21,7 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
   const { document: d } = data;
   await requirePage({ permission: "documents.credit_note", branchId: d.branchId }); // un usuario de otra sucursal no devuelve aquí
   const canManageSeries = hasPermission(ctx.permissions, "settings.manage");
+  const canAuthorizeControlled = hasPermission(ctx.permissions, "pharmacy.controlled_log");
   return (
     <>
       <PageHeader title={`Nota de crédito de ${d.label}`} subtitle={`${d.customerName} · ${d.customerDoc} · ${d.issueDate} · Total ${soles(d.total)}`}
@@ -45,7 +46,7 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
           : data.series.length === 0 ? (
             <EmptyState icon="receipt" title="Falta una serie de notas de crédito" text={canManageSeries ? `Cree en Configuración una serie de nota de crédito que empiece con ${d.label[0]} para esta sucursal.` : `Pida a un administrador que cree una serie de nota de crédito que empiece con ${d.label[0]} para esta sucursal.`}
               action={canManageSeries ? <Link href="/app/settings?tab=series" className="app-btn primary">Ir a series</Link> : undefined} />
-          ) : <CreditNoteForm data={data} />}
+          ) : <CreditNoteForm data={data} canAuthorizeControlled={canAuthorizeControlled} />}
       </Panel>
     </>
   );

@@ -43,7 +43,7 @@ export const SYSTEM_ROLES: Record<string, { name: string; permissions: readonly 
     name: "Químico farmacéutico (DT)",
     permissions: [
       "pharmacy.dispense_rx", "pharmacy.controlled_log", "pos.sell", "pos.void", "inventory.read",
-      "inventory.adjust", "inventory.waste", "purchases.manage", "products.manage", "documents.read",
+      "inventory.adjust", "inventory.waste", "purchases.manage", "products.manage", "documents.read", "documents.credit_note",
     ],
   },
   accountant: {
