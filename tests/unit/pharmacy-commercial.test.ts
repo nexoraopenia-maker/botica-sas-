@@ -4,7 +4,7 @@ import { D } from "@/lib/money";
 import { formatStock, resolveSaleUnit } from "@/lib/pharmacy/fractioning";
 import { expiryWarning, lotProblem } from "@/lib/inventory/expiry-rules";
 import { creditNoteEffect, earnAmount } from "@/lib/loyalty/calc";
-import { controlledCsv, observatoryXlsx, type ControlledRow } from "@/lib/reports/digemid-format";
+import { controlledCsv, observatoryXlsx, priceStockCsv, type ControlledRow } from "@/lib/reports/digemid-format";
 import { permissionForPath } from "@/lib/modules/registry";
 
 const box = { name: "Paracetamol", unit_code: "NIU", sale_price: D("0.50"), package_price: D("80"), units_per_package: 200, units_per_blister: 10, blister_price: D("4.50"), package_unit_code: "BX", allow_fractional: false };
@@ -92,6 +92,14 @@ describe("reportes DIGEMID", () => {
     expect(csv).toContain(";Dra. Rojas;4567;12345678;");
     expect(csv).toContain(";'=HYPERLINK(1);");
     expect(csv.split("\r\n")[0]!.split(";")).toHaveLength(19);
+  });
+  it("la hoja de revisión trae código, precio y stock, y neutraliza fórmulas", () => {
+    const csv = priceStockCsv([{ productCode: "01234", sku: "AMOX", product: "=CMD()", dci: "Amoxicilina", packagePrice: "80.00", unitPrice: "0.50", stock: "120" }, { productCode: null, sku: "X", product: "Sin código", dci: null, packagePrice: "1.00", unitPrice: "1.00", stock: "0" }]);
+    expect(csv.charCodeAt(0)).toBe(0xfeff);
+    const [head, a, b] = csv.trim().split("\r\n");
+    expect(head!.split(";")).toEqual(["CodProd", "SKU", "Producto", "DCI", "Precio empaque", "Precio unidad", "Stock (unidad base)"]);
+    expect(a).toBe("01234;AMOX;'=CMD();Amoxicilina;80.00;0.50;120");
+    expect(b).toBe(";X;Sin código;;1.00;1.00;0");
   });
   it("cada ruta exige su permiso", () => {
     expect(permissionForPath("/app/reports/digemid")).toBe("pharmacy.controlled_log");

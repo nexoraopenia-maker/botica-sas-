@@ -48,3 +48,16 @@ export function controlledCsv(rows: ControlledRow[]): string {
   const lines = rows.map((r) => [r.occurredAt, r.product, r.dci, r.list, r.lot, r.expiry, r.movement, r.quantity, r.balance, r.document, r.purchase, r.rxKind, r.rxDate, r.patient, r.prescriber, r.prescriberCmp, r.prescriberDoc, r.counterparty, r.recordedBy].map(csvCell).join(";"));
   return `﻿${[CONTROLLED_HEADER.join(";"), ...lines].join("\r\n")}\r\n`;
 }
+
+export interface PriceStockRow { productCode: string | null; sku: string; product: string; dci: string | null; packagePrice: string; unitPrice: string; stock: string }
+
+const PRICE_STOCK_HEADER = ["CodProd", "SKU", "Producto", "DCI", "Precio empaque", "Precio unidad", "Stock (unidad base)"];
+
+/**
+ * Hoja de revisión antes de cargar al Observatorio: código, precio y stock vendible de la sucursal.
+ * No es el archivo de carga (ese no lleva stock): sirve para cotejar lo que se reporta contra lo que hay en tienda.
+ */
+export function priceStockCsv(rows: PriceStockRow[]): string {
+  const lines = rows.map((r) => [r.productCode, r.sku, r.product, r.dci, r.packagePrice, r.unitPrice, r.stock].map(csvCell).join(";"));
+  return `\ufeff${[PRICE_STOCK_HEADER.join(";"), ...lines].join("\r\n")}\r\n`;
+}

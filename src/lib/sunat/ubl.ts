@@ -1,4 +1,5 @@
 import type { DocumentType, IdentityDocType } from "@/generated/prisma/enums";
+import { ICBPER_PER_BAG } from "@/lib/sunat/rates";
 import { fmt2, type Decimal } from "@/lib/money";
 import { amountInWords } from "@/lib/sunat/amount-in-words";
 import {
@@ -216,7 +217,7 @@ function lineXml(d: UblDocumentInput, l: UblLine, idx: number, tag: "Invoice" | 
     : "";
 
   const icbperSub = L.icbper.greaterThan(0)
-    ? `<cac:TaxSubtotal>${a(L.icbper, "cbc:TaxAmount")}${el("cbc:BaseUnitMeasure", l.icbperUnits ?? 0, { unitCode: "NIU" })}<cac:TaxCategory>${el("cbc:PerUnitAmount", "0.50", { currencyID: d.currency })}${taxSchemeXml(TAX_SCHEMES.ICBPER)}</cac:TaxCategory></cac:TaxSubtotal>`
+    ? `<cac:TaxSubtotal>${a(L.icbper, "cbc:TaxAmount")}${el("cbc:BaseUnitMeasure", l.icbperUnits ?? 0, { unitCode: "NIU" })}<cac:TaxCategory>${el("cbc:PerUnitAmount", ICBPER_PER_BAG, { currencyID: d.currency })}${taxSchemeXml(TAX_SCHEMES.ICBPER)}</cac:TaxCategory></cac:TaxSubtotal>`
     : "";
 
   return `<cac:${tag}Line>

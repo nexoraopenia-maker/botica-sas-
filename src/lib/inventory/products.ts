@@ -23,6 +23,8 @@ export const createProductSchema = z.object({
   minStock: dec(0).optional().transform((v) => v ?? D(0)),
   allowFractional: z.boolean().default(false),
   isService: z.boolean().default(false),
+  /** Bolsa plástica: cada unidad vendida paga ICBPER */
+  icbper: z.boolean().default(false),
   unitsPerPackage: z.number().int().min(1).max(10000).default(1),
   packagePrice: dec(0).optional(),
   unitsPerBlister: z.number().int().min(1).max(10000).default(1),
@@ -38,6 +40,7 @@ export const createProductSchema = z.object({
   concentration: optStr(60),
   pharmaceuticalForm: optStr(60),
   laboratory: optStr(120),
+  therapeuticAction: optStr(120),
   digemidRegistration: optStr(60),
   pharmaceuticalKind: z.enum(["GENERIC", "BRAND"]).optional(),
   saleCondition: z.enum(["FREE", "PRESCRIPTION", "RETAINED_PRESCRIPTION"]).optional(),
@@ -54,6 +57,8 @@ export const createProductSchema = z.object({
   message: "Un producto controlado requiere receta retenida", path: ["saleCondition"],
 }).refine((v) => v.unitsPerBlister === 1 || v.unitsPerPackage % v.unitsPerBlister === 0, {
   message: "El empaque debe contener blísteres completos", path: ["unitsPerBlister"],
+}).refine((v) => !v.icbper || !v.isService, {
+  message: "Un servicio no es una bolsa plástica", path: ["icbper"],
 }).refine((v) => v.unitsPerPackage === 1 || !!v.packagePrice, {
   message: "Indique el precio por empaque", path: ["packagePrice"],
 });
@@ -100,12 +105,13 @@ export async function createProduct(ctx: TenantDbContext, raw: z.input<typeof cr
           units_per_blister: i.unitsPerBlister, blister_price: i.unitsPerBlister > 1 ? (i.blisterPrice ?? null) : null, base_unit_name: i.baseUnitName ?? null,
           digemid_product_code: pharmacy ? (i.digemidProductCode ?? null) : null,
           package_unit_code: i.unitsPerPackage > 1 ? "BX" : null, allow_fractional: i.allowFractional, min_stock: i.minStock,
-          is_service: i.isService, tracks_batches: !i.isService,
+          is_service: i.isService, tracks_batches: !i.isService, icbper: i.icbper,
           senasa_registration: agro ? (i.senasaRegistration ?? null) : null,
           withdrawal_days_meat: agro ? (i.withdrawalDaysMeat ?? null) : null,
           withdrawal_days_milk: agro ? (i.withdrawalDaysMilk ?? null) : null,
           dci: pharmacy ? (i.dci ?? null) : null, concentration: pharmacy ? (i.concentration ?? null) : null,
           pharmaceutical_form: pharmacy ? (i.pharmaceuticalForm ?? null) : null, laboratory: pharmacy ? (i.laboratory ?? null) : null,
+          therapeutic_action: pharmacy ? (i.therapeuticAction ?? null) : null,
           digemid_registration: pharmacy ? (i.digemidRegistration ?? null) : null,
           pharmaceutical_kind: pharmacy ? (i.pharmaceuticalKind ?? null) : null,
           sale_condition: pharmacy ? (i.saleCondition ?? "FREE") : null, is_controlled: pharmacy && i.isControlled,

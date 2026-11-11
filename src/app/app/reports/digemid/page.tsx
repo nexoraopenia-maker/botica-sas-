@@ -46,13 +46,14 @@ async function Prices({ ctx }: { ctx: { tenantId: string; userId: string; branch
             <tr key={b.id}>
               <td data-label="Sucursal"><strong>{b.name}</strong></td>
               <td data-label="Código"><CodeInput kind="branch" id={b.id} value={b.code} label={`Código de establecimiento de ${b.name}`} /></td>
-              <td data-label="">{b.code ? <a className="app-btn primary" href={`/app/reports/digemid/precios?branch=${b.id}`} download>Descargar Excel</a> : <span className="app-muted">Registre el código para descargar</span>}</td>
+              <td data-label="">{b.code ? <a className="app-btn primary" href={`/app/reports/digemid/precios?branch=${b.id}`} download>Descargar Excel</a> : <span className="app-muted">Registre el código para descargar</span>}{" "}
+                <a className="app-btn" href={`/app/reports/digemid/revision?branch=${b.id}`} download>Precios y stock (CSV)</a></td>
             </tr>
           ))}</tbody>
         </table></div>
         <p className="app-muted set-pad">
-          Columnas CodEstab, CodProd, Precio 1 (empaque) y Precio 2 (unidad), en la hoja Hoja1, con precios con IGV. Compare el archivo con la plantilla vigente del
-          Observatorio antes de la primera carga, porque DIGEMID puede cambiarla.
+          Columnas CodEstab, CodProd, Precio 1 (empaque) y Precio 2 (unidad), en la hoja Hoja1, con precios con IGV. El archivo de carga no lleva stock. El CSV «Precios y stock» es
+          una hoja de revisión con el código, el precio y el stock vendible de la sucursal. Compare el archivo con la plantilla vigente del Observatorio antes de la primera carga, porque DIGEMID puede cambiarla.
         </p>
       </Panel>
       <div style={{ height: 16 }} />

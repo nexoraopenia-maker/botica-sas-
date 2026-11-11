@@ -9,6 +9,13 @@ export interface PosProduct {
   barcode: string | null;
   name: string;
   dci: string | null;
+  concentration: string | null;
+  pharmaceuticalForm: string | null;
+  laboratory: string | null;
+  therapeuticAction: string | null;
+  pharmaceuticalKind: "GENERIC" | "BRAND" | null;
+  /** Bolsa plástica: cada unidad paga ICBPER */
+  icbper: boolean;
   unitCode: string;
   salePrice: string;
   packagePrice: string | null;
@@ -64,7 +71,8 @@ export async function loadPosContext(ctx: TenantDbContext & { branchIds: string[
       orderBy: { series: "asc" },
     });
     const products = await tx.$queryRaw<PosProduct[]>`
-      SELECT p.id, p.sku, p.barcode, p.name, p.dci, p.unit_code AS "unitCode", p.sale_price::text AS "salePrice",
+      SELECT p.id, p.sku, p.barcode, p.name, p.dci, p.concentration, p.pharmaceutical_form AS "pharmaceuticalForm", p.laboratory,
+             p.therapeutic_action AS "therapeuticAction", p.pharmaceutical_kind::text AS "pharmaceuticalKind", p.icbper, p.unit_code AS "unitCode", p.sale_price::text AS "salePrice",
              p.package_price::text AS "packagePrice", p.units_per_package AS "unitsPerPackage",
              p.units_per_blister AS "unitsPerBlister", p.blister_price::text AS "blisterPrice", p.base_unit_name AS "baseUnitName",
              p.package_unit_code AS "packageUnitCode", p.allow_fractional AS "allowFractional",

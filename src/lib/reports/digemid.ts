@@ -3,7 +3,7 @@ import { withTenant, type TenantDbContext } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { D } from "@/lib/money";
 import { DomainError } from "@/lib/result";
-import type { ControlledRow, ObservatoryRow } from "./digemid-format";
+import type { ControlledRow, ObservatoryRow, PriceStockRow } from "./digemid-format";
 
 export interface PriceReport {
   branches: { id: string; name: string; code: string | null }[];
@@ -45,6 +45,34 @@ export async function observatoryRows(ctx: TenantDbContext, branchId: string): P
     return products.map((p) => ({
       establishment: branch.digemid_establishment_code!, productCode: p.digemid_product_code!,
       packagePrice: (p.package_price ?? p.sale_price.times(p.units_per_package)).toFixed(2), unitPrice: D(p.sale_price).toFixed(2),
+    }));
+  });
+}
+
+interface PriceStockRaw { code: string | null; sku: string; name: string; dci: string | null; sale_price: string; package_price: string | null; units_per_package: number; stock: string }
+
+/** Productos farmacéuticos con su precio vigente y el stock vendible (sin vencidos ni cuarentena) de la sucursal. */
+export async function loadPriceStockRows(ctx: TenantDbContext, branchId: string): Promise<PriceStockRow[]> {
+  return withTenant(ctx, async (tx) => {
+    const branch = await tx.branch.findFirst({ where: { id: branchId, deleted_at: null } });
+    if (!branch) throw new DomainError("NOT_FOUND", "Sucursal no encontrada.");
+    const rows = await tx.$queryRaw<PriceStockRaw[]>`
+      SELECT p.digemid_product_code AS code, p.sku, p.name, p.dci, p.sale_price::text, p.package_price::text, p.units_per_package,
+             coalesce(sum(b.stock) FILTER (WHERE b.expiry_date IS NULL OR b.expiry_date >= app.lima_today()), 0)::text AS stock
+        FROM products p
+        LEFT JOIN product_batches b ON b.product_id = p.id AND b.branch_id = ${branchId}::uuid AND b.stock > 0 AND b.deleted_at IS NULL AND NOT b.is_quarantined
+       WHERE p.deleted_at IS NULL AND p.is_active AND NOT p.is_service
+         AND (p.digemid_product_code IS NOT NULL OR p.digemid_registration IS NOT NULL OR p.dci IS NOT NULL OR p.sale_condition::text IN ('PRESCRIPTION', 'RETAINED_PRESCRIPTION'))
+       GROUP BY p.id
+       ORDER BY p.digemid_product_code NULLS LAST, p.name
+       LIMIT 5000`;
+    await audit(tx, {
+      tenantId: ctx.tenantId, actorUserId: ctx.userId, actorKind: "tenant_user", action: "digemid.price_stock_export",
+      entityType: "branch", entityId: branchId, after: { products: rows.length },
+    });
+    return rows.map((r) => ({
+      productCode: r.code, sku: r.sku, product: r.name, dci: r.dci, unitPrice: D(r.sale_price).toFixed(2), stock: D(r.stock).toString(),
+      packagePrice: (r.package_price ? D(r.package_price) : D(r.sale_price).times(r.units_per_package)).toFixed(2),
     }));
   });
 }

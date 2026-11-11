@@ -664,3 +664,14 @@ a.app-stat:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(15, 2
 .svc-facts div { padding: 7px 0; }
 .svc-facts dt { color: var(--a-muted); font-size: 12.5px; }
 .svc-facts dd { margin: 2px 0 0; font-size: 14px; }
+.pos-subs { margin: 8px 12px; padding: 10px 12px; border: 1px solid #b9d4ff; border-left: 4px solid var(--a-blue); border-radius: 10px; background: #f3f8ff; font-size: 13px; }
+.pos-subs-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+.pos-subs-head small { display: block; color: var(--a-muted); }
+.pos-sub { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid #dde9fb; }
+.pos-sub-info { min-width: 0; }
+.pos-sub-info > span { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 2px; color: var(--a-muted); }
+.pos-sub-save { color: #067647; font-weight: 600; }
+.pos-bags { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13.5px; }
+.pos-bags small { display: block; font-size: 12px; color: var(--a-muted); }
+.pos-bags output { width: 40px; text-align: center; font-weight: 600; }
+.pos-qty button:disabled { opacity: .4; cursor: default; }

@@ -829,6 +829,7 @@ model Product {
   concentration        String?
   pharmaceutical_form  String?
   laboratory           String?
+  therapeutic_action   String? // acción terapéutica: Analgésico, Antibiótico…
   pharmaceutical_kind  PharmaceuticalKind?
   sale_condition       SaleCondition?
   is_controlled        Boolean             @default(false)

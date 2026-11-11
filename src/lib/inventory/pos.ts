@@ -68,6 +68,7 @@ export interface SaleResult {
   number: number;
   total: string;
   igv: string;
+  icbper: string;
   issueDate: string;
   replayed: boolean;
   warnings: string[];
@@ -171,7 +172,7 @@ export async function createSale(ctx: TenantDbContext, rawInput: CreateSaleInput
           unitPrice: item.unitPriceOverride ?? unit.unitPrice,
           affectation,
           discount: item.discount ?? 0,
-          icbperUnits: item.icbperUnits ?? (p.icbper ? item.quantity.toNumber() : 0),
+          icbperUnits: item.icbperUnits ?? (p.icbper ? unit.baseQuantity.toNumber() : 0), // un paquete de bolsas paga por bolsa
         });
         return { idx, item, product: p, unit, totals };
       });
@@ -325,6 +326,7 @@ export async function createSale(ctx: TenantDbContext, rawInput: CreateSaleInput
         number,
         total: totals.total.toFixed(2),
         igv: totals.igv.toFixed(2),
+        icbper: totals.icbper.toFixed(2),
         issueDate: now.date,
         replayed: false,
         warnings,
@@ -345,13 +347,14 @@ export async function createSale(ctx: TenantDbContext, rawInput: CreateSaleInput
   }
 }
 
-function replay(doc: { id: string; series: string; number: number; total: Decimal; igv: Decimal; issue_date: Date }): SaleResult {
+function replay(doc: { id: string; series: string; number: number; total: Decimal; igv: Decimal; icbper: Decimal; issue_date: Date }): SaleResult {
   return {
     documentId: doc.id,
     series: doc.series,
     number: doc.number,
     total: doc.total.toFixed(2),
     igv: doc.igv.toFixed(2),
+    icbper: doc.icbper.toFixed(2),
     issueDate: doc.issue_date.toISOString().slice(0, 10),
     replayed: true,
     warnings: [],

@@ -1,4 +1,5 @@
 import { Prisma } from "@/generated/prisma/client";
+import { ICBPER_PER_BAG } from "@/lib/sunat/rates";
 
 export const Decimal = Prisma.Decimal;
 export type Decimal = Prisma.Decimal;
@@ -11,7 +12,7 @@ export const round2 = (v: Decimal): Decimal => v.toDecimalPlaces(2, Decimal.ROUN
 export const round10 = (v: Decimal): Decimal => v.toDecimalPlaces(10, Decimal.ROUND_HALF_UP);
 
 export const IGV_RATE = D("0.18");
-export const ICBPER_RATE = D("0.50");
+export const ICBPER_RATE = D(ICBPER_PER_BAG);
 
 export const fmt2 = (v: Decimal): string => round2(v).toFixed(2);
 export const sum = (values: Decimal[]): Decimal => values.reduce((a, b) => a.plus(b), D(0));

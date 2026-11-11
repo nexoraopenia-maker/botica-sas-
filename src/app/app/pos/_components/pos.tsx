@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createSaleAction, walletBalanceAction } from "@/app/app/pos/actions";
 import { expiryWarning } from "@/lib/inventory/expiry-rules";
+import { findSubstitutes, matchesSearch } from "@/lib/pharmacy/substitutes";
+import { ICBPER_PER_BAG } from "@/lib/sunat/rates";
 import type { PosProduct } from "@/lib/inventory/pos-catalog";
 import { Icon } from "@/app/app/_components/icons";
 import { CameraScanner } from "./camera-scanner";
@@ -27,6 +29,8 @@ interface CartLine {
 interface Receipt {
   number: string;
   total: string;
+  igv: string;
+  icbper: string;
   change: number | null;
   warnings: string[];
   wallet: { redeemed: string; earned: string; balance: string } | null;
@@ -41,7 +45,7 @@ const METHODS: { key: Method; label: string }[] = [
 ];
 
 const money = (n: number) => `S/ ${n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const ICBPER = Number(ICBPER_PER_BAG);
 
 function unitPrice(p: PosProduct, unit: SaleUnit): number {
   if (unit === "BLISTER") return p.blisterPrice ? Number(p.blisterPrice) : Number(p.salePrice) * p.unitsPerBlister;
@@ -60,6 +64,8 @@ const presentations = (p: PosProduct): SaleUnit[] => [
 const unitLabel = (p: PosProduct, unit: SaleUnit) =>
   unit === "PACKAGE" ? `caja x${p.unitsPerPackage}` : unit === "BLISTER" ? `blíster x${p.unitsPerBlister}` : (p.baseUnitName?.toLowerCase() ?? "unidad");
 const lineTotal = (l: CartLine) => Math.round(unitPrice(l.product, l.unit) * l.qty * 100) / 100;
+/** Bolsas plásticas de la línea: el ICBPER se paga por bolsa, aunque se venda un paquete */
+const bagsOf = (l: CartLine) => (l.product.icbper ? baseQty(l) : 0);
 const isGravado = (p: PosProduct) => p.igvAffectation.startsWith("1");
 /** Texto del periodo de retiro para el aviso rojo al productor. */
 const withdrawalText = (p: PosProduct) => [
@@ -99,6 +105,8 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletUse, setWalletUse] = useState("");
   const [rxFor, setRxFor] = useState<{ product: PosProduct; unit: SaleUnit } | null>(null);
+  /** Medicamento de marca recién agregado: se le sugieren genéricos y sustitutos */
+  const [subsFor, setSubsFor] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const idempotencyKey = useRef<string>(crypto.randomUUID());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -119,10 +127,10 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
   }, [products]);
 
   const results = useMemo(() => {
-    const q = norm(query.trim());
+    const q = query.trim();
     const pool = otcOnly ? products.filter((p) => !p.requiresRx) : products;
     if (!q) return pool;
-    return pool.filter((p) => norm(`${p.name} ${p.dci ?? ""} ${p.sku} ${p.barcode ?? ""}`).includes(q));
+    return pool.filter((p) => matchesSearch(p, q));
   }, [products, query, otcOnly]);
 
   const available = (p: PosProduct) => Number(p.available);
@@ -151,6 +159,32 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
       return [...prev, { key: `${p.id}:${unit}`, product: p, unit, qty: 1, prescriptionId: rx }];
     });
     flash(`+1 ${unit === "UNIT" ? "" : `${unitLabel(p, unit)} · `}${p.name}`);
+    if (p.dci && p.pharmaceuticalKind !== "GENERIC") setSubsFor(p.id);
+  }
+
+  /** Reemplaza el medicamento del carrito por un equivalente, con la misma cantidad y presentación si existe. */
+  function swap(from: PosProduct, to: PosProduct) {
+    const line = cart.find((l) => l.product.id === from.id);
+    if (!line) return;
+    setSubsFor(null);
+    if (to.requiresRx) {
+      // La receta validada es del producto original: el sustituto pide la suya
+      setCart((prev) => prev.filter((l) => l.key !== line.key));
+      add(to);
+      return;
+    }
+    const unit = presentations(to).includes(line.unit) ? line.unit : "UNIT";
+    if (to.tracksBatches && !to.isService && inCartBase(to.id) + line.qty * factor(to, unit) > available(to)) {
+      flash(`No hay stock suficiente de ${to.name}`, "bad");
+      return;
+    }
+    setCart((prev) => {
+      const without = prev.filter((l) => l.key !== line.key);
+      const merged = without.find((l) => l.product.id === to.id && l.unit === unit);
+      if (merged) return without.map((l) => (l === merged ? { ...l, qty: l.qty + line.qty } : l));
+      return [...without, { key: `${to.id}:${unit}`, product: to, unit, qty: line.qty }];
+    });
+    flash(`Cambiado por ${to.name}`);
   }
 
   function setQty(line: CartLine, qty: number) {
@@ -199,7 +233,9 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
     setQuery("");
   }
 
-  const total = cart.reduce((a, l) => a + lineTotal(l), 0);
+  const bags = cart.reduce((a, l) => a + bagsOf(l), 0);
+  const icbper = Math.round(bags * ICBPER * 100) / 100;
+  const total = Math.round((cart.reduce((a, l) => a + lineTotal(l), 0) + icbper) * 100) / 100;
   const igv = cart.reduce((a, l) => a + (isGravado(l.product) ? lineTotal(l) - lineTotal(l) / 1.18 : 0), 0);
   const items = cart.reduce((a, l) => a + l.qty, 0);
   const receivedN = Number(received.replace(",", "."));
@@ -220,6 +256,10 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
     void walletBalanceAction(type, custDoc).then((r) => { if (!stale && r.ok && r.data.balance !== null) setWalletBalance(Number(r.data.balance)); });
     return () => { stale = true; };
   }, [custDoc, docType, loyaltyEnabled]);
+  const bagProduct = products.find((p) => p.icbper && !p.isService);
+  const bagLine = bagProduct ? cart.find((l) => l.product.id === bagProduct.id && l.unit === "UNIT") : undefined;
+  const subsProduct = subsFor ? cart.find((l) => l.product.id === subsFor)?.product : undefined;
+  const substitutes = subsProduct ? findSubstitutes(subsProduct, otcOnly ? products.filter((p) => !p.requiresRx) : products) : [];
   const withdrawalLines = [...new Map(cart.filter((l) => l.product.withdrawalDays).map((l) => [l.product.id, l.product])).values()];
 
   function resetSale() {
@@ -231,6 +271,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
     setMethod("EFECTIVO");
     setWalletBalance(null);
     setWalletUse("");
+    setSubsFor(null);
     setError(null);
     setReceipt(null);
     setSheet(false);
@@ -280,6 +321,8 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
       setReceipt({
         number: `${res.data.series}-${res.data.number}`,
         total: res.data.total,
+        igv: res.data.igv,
+        icbper: res.data.icbper,
         change: change !== null && change > 0 ? change : null,
         warnings: res.data.warnings,
         wallet: res.data.wallet ?? null,
@@ -324,6 +367,29 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
           </div>
         ))}
       </div>
+
+      {subsProduct && substitutes.length > 0 && (
+        <div className="pos-subs" role="region" aria-label={`Genéricos y sustitutos de ${subsProduct.name}`}>
+          <div className="pos-subs-head">
+            <div><strong>Genéricos y sustitutos</strong><small>Mismo principio activo, concentración y forma que {subsProduct.name}</small></div>
+            <button type="button" className="pos-link" onClick={() => setSubsFor(null)} aria-label="Ocultar sugerencias">Ocultar</button>
+          </div>
+          {substitutes.map(({ product: s, saving }) => (
+            <div key={s.id} className="pos-sub">
+              <div className="pos-sub-info">
+                <strong>{s.name}</strong>
+                <span>
+                  {s.pharmaceuticalKind === "GENERIC" && <span className="app-pill green">Genérico</span>}
+                  {s.laboratory && <span>{s.laboratory}</span>}
+                  <span>{money(Number(s.salePrice))}</span>
+                  {saving > 0 && <span className="pos-sub-save">Ahorra {money(saving)} c/u</span>}
+                </span>
+              </div>
+              <button type="button" className="app-btn" onClick={() => swap(subsProduct, s)}>Cambiar</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {expiringLines.length > 0 && (
         <div className="pos-callout amber" role="status">
@@ -402,9 +468,21 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
           </div>
         )}
 
+        {bagProduct && (
+          <div className="pos-bags">
+            <span>Bolsas plásticas<small>{money(Number(bagProduct.salePrice))} + ICBPER {money(ICBPER)} c/u</small></span>
+            <div className="pos-qty">
+              <button type="button" aria-label="Quitar una bolsa" disabled={!bagLine} onClick={() => bagLine && setQty(bagLine, bagLine.qty - 1)}>−</button>
+              <output aria-label="Bolsas">{bagLine?.qty ?? 0}</output>
+              <button type="button" aria-label="Agregar una bolsa" onClick={() => add(bagProduct)}>+</button>
+            </div>
+          </div>
+        )}
+
         <dl className="pos-totals">
-          <div><dt>Op. gravadas + exoneradas</dt><dd>{money(total - igv)}</dd></div>
+          <div><dt>Op. gravadas + exoneradas</dt><dd>{money(total - igv - icbper)}</dd></div>
           <div><dt>IGV (18%)</dt><dd>{money(igv)}</dd></div>
+          {icbper > 0 && <div><dt>ICBPER ({bags} {bags === 1 ? "bolsa" : "bolsas"})</dt><dd>{money(icbper)}</dd></div>}
           {walletAmount > 0 && <div><dt>Pagado con monedero</dt><dd>− {money(walletAmount)}</dd></div>}
           <div className="grand"><dt>{walletAmount > 0 ? "A cobrar" : "Total"}</dt><dd>{money(toPay)}</dd></div>
         </dl>
@@ -425,7 +503,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
           <Icon name="box" size={18} />
           <input
             ref={searchRef} autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onSearchKey}
-            placeholder="Buscar por nombre, DCI, código o escanear…" aria-label="Buscar producto o escanear código"
+            placeholder="Buscar por nombre, principio activo, acción terapéutica o código…" aria-label="Buscar producto o escanear código"
             enterKeyHint="search" autoComplete="off"
           />
           <button type="button" className="pos-cam" onClick={() => setScanning(true)} aria-label="Escanear con la cámara">
@@ -452,7 +530,9 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
                 <button type="button" className="pos-card-main" onClick={() => add(p)} disabled={out}
                   aria-label={`Agregar ${p.name}, ${money(Number(p.salePrice))}`}>
                   <span className="pos-card-name">{p.name}</span>
-                  {p.dci && <span className="pos-card-sub">{p.dci}</span>}
+                  {(p.dci || p.therapeuticAction) && (
+                    <span className="pos-card-sub">{[p.dci && [p.dci, p.concentration].filter(Boolean).join(" "), p.therapeuticAction].filter(Boolean).join(" · ")}</span>
+                  )}
                   <span className="pos-card-price">{money(Number(p.salePrice))}</span>
                   <span className="pos-card-meta">
                     {expiredOnly ? <span className="app-pill red">Lote vencido: no se vende</span> : out ? <span className="app-pill red">Agotado</span> : p.isService ? <span className="app-pill gray">Servicio</span>
@@ -513,6 +593,7 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
             <h2 id="receipt-title">Venta registrada</h2>
             <p className="pos-receipt-num">{receipt.number}</p>
             <p className="pos-receipt-total">S/ {receipt.total}</p>
+            <p className="pos-receipt-note">Incluye IGV {money(Number(receipt.igv))}{Number(receipt.icbper) > 0 ? ` · ICBPER ${money(Number(receipt.icbper))}` : ""}</p>
             {receipt.change !== null && <p>Vuelto: <strong>{money(receipt.change)}</strong></p>}
             {receipt.wallet && (
               <p className="pos-receipt-note">
