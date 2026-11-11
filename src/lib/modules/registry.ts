@@ -112,6 +112,7 @@ export const PATH_HEADER = "x-nx-path";
 export function permissionForPath(pathWithSearch: string): Permission | null {
   const [pathname = "", search = ""] = pathWithSearch.split("?");
   if (/^\/app\/documents\/[^/]+\/credit-note$/.test(pathname)) return "documents.credit_note";
+  if (/^\/app\/inventory\/import(\/|$)/.test(pathname)) return "products.manage";
   if (pathname === "/app/reports" && new URLSearchParams(search).get("tab") === "ple") return "reports.accounting";
   const hit = NAV.filter((i) => i.href !== "/app" && (pathname === i.href || pathname.startsWith(`${i.href}/`)))
     .sort((a, b) => b.href.length - a.href.length)[0];

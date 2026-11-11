@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createSaleAction, walletBalanceAction } from "@/app/app/pos/actions";
 import { expiryWarning } from "@/lib/inventory/expiry-rules";
 import { findSubstitutes, matchesSearch } from "@/lib/pharmacy/substitutes";
+import { categoryOptions, inCategory, NO_CATEGORY } from "@/lib/inventory/pos-categories";
 import { ICBPER_PER_BAG } from "@/lib/sunat/rates";
 import type { PosProduct } from "@/lib/inventory/pos-catalog";
 import { Icon } from "@/app/app/_components/icons";
@@ -88,6 +89,8 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  /** null = todas las categorías */
+  const [category, setCategory] = useState<string | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [docType, setDocType] = useState<DocType>("BOLETA");
   const [custDoc, setCustDoc] = useState("");
@@ -126,12 +129,15 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
     return m;
   }, [products]);
 
+  const pool = useMemo(() => (otcOnly ? products.filter((p) => !p.requiresRx) : products), [products, otcOnly]);
+  const cats = useMemo(() => categoryOptions(pool), [pool]);
+  // Si la categoría elegida ya no tiene productos (venta rápida, catálogo actualizado), se vuelve a «Todas»
+  const activeCategory = category !== null && category !== NO_CATEGORY && !cats.options.some((o) => o.id === category) ? null : category;
   const results = useMemo(() => {
     const q = query.trim();
-    const pool = otcOnly ? products.filter((p) => !p.requiresRx) : products;
-    if (!q) return pool;
-    return pool.filter((p) => matchesSearch(p, q));
-  }, [products, query, otcOnly]);
+    const inCat = activeCategory === null ? pool : pool.filter((p) => inCategory(p, activeCategory));
+    return q ? inCat.filter((p) => matchesSearch(p, q)) : inCat;
+  }, [pool, query, activeCategory]);
 
   const available = (p: PosProduct) => Number(p.available);
   const inCartBase = (productId: string, except?: string) =>
@@ -513,13 +519,24 @@ export function Pos({ products, branchId, branchName, series, otcOnly = false, c
             <span>Cámara</span>
           </button>
         </div>
+        {cats.options.length > 0 && (
+          <div className="pos-cats" role="group" aria-label="Filtrar por categoría">
+            <button type="button" className={`pos-cat${activeCategory === null ? " on" : ""}`} aria-pressed={activeCategory === null} onClick={() => setCategory(null)}>Todas <span>{pool.length}</span></button>
+            {cats.options.map((o) => (
+              <button key={o.id} type="button" className={`pos-cat${activeCategory === o.id ? " on" : ""}`} aria-pressed={activeCategory === o.id} onClick={() => setCategory(o.id)}>{o.name} <span>{o.count}</span></button>
+            ))}
+            {cats.uncategorized > 0 && (
+              <button type="button" className={`pos-cat${activeCategory === NO_CATEGORY ? " on" : ""}`} aria-pressed={activeCategory === NO_CATEGORY} onClick={() => setCategory(NO_CATEGORY)}>Sin categoría <span>{cats.uncategorized}</span></button>
+            )}
+          </div>
+        )}
         <div className="pos-tools">
           <p className="pos-hint">{otcOnly ? "Venta rápida: solo productos de venta libre." : "Lector de códigos USB o Bluetooth: escanee directamente, sin hacer clic."}</p>
           <button type="button" className="app-btn" onClick={() => setClosing(true)}>Cierre de caja</button>
         </div>
 
         <div className="pos-grid">
-          {results.length === 0 && <p className="pos-empty">Sin resultados para «{query}».</p>}
+          {results.length === 0 && <p className="pos-empty">{query ? `Sin resultados para «${query}»${activeCategory !== null ? " en esta categoría" : ""}.` : "No hay productos en esta categoría."}</p>}
           {results.map((p) => {
             const stock = available(p);
             const out = p.tracksBatches && !p.isService && stock <= 0;
